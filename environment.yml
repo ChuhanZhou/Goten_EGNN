@@ -32,13 +32,18 @@ dependencies:
       - certifi==2026.1.4
       - charset-normalizer==3.4.4
       - colorama==0.4.6
+      - contourpy==1.3.3
+      - cycler==0.12.1
       - e3nn==0.6.0
       - filelock==3.20.0
+      - fonttools==4.61.1
       - frozenlist==1.8.0
       - fsspec==2025.12.0
       - idna==3.11
       - jinja2==3.1.6
+      - kiwisolver==1.4.9
       - markupsafe==2.1.5
+      - matplotlib==3.10.8
       - mpmath==1.3.0
       - multidict==6.7.1
       - networkx==3.6.1
@@ -49,8 +54,10 @@ dependencies:
       - propcache==0.4.1
       - psutil==7.2.2
       - pyparsing==3.3.2
+      - python-dateutil==2.9.0.post0
       - requests==2.32.5
       - scipy==1.17.0
+      - six==1.17.0
       - sympy==1.14.0
       - torch==2.8.0+cu128
       - torch-geometric==2.7.0

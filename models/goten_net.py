@@ -1,48 +1,51 @@
 from configs.config import config as cfg
-from models.decoder import MLP
+from models.decoder import MLP,GraphDecoder
 
 import torch
 import torch.nn as nn
-import numpy as np
-from torch_geometric.nn import MessagePassing
-from torch_geometric.nn import GCNConv
 from e3nn import o3
-from torch_scatter import scatter_softmax,scatter_add,scatter_sum
+from torch_scatter import scatter_softmax,scatter_sum
 
 class GotenNet(nn.Module):
-    def __init__(self,out_features=cfg["out_dim"]):
+    def __init__(self, out_labels=cfg["predict_labels"], mean_std=None):
         super().__init__()
-        self.rbf = RBFLayer(cfg["rbf_num"])
 
-        self.embedding = Embedding(self.rbf)
+        self.embedding = Embedding()
 
         self.gata_list = nn.ModuleList()
         self.eqff_list = nn.ModuleList()
         for i in range(cfg["layer_num"]):
-            self.gata_list.append(GATA(self.rbf))
+            self.gata_list.append(GATA())
             self.eqff_list.append(EQFF())
 
-        self.decoders = nn.ModuleList()
+        self.decoder = GraphDecoder(out_labels,mean_std)
 
-    def forward(self, x_n, x_e, edge_index):
+    def forward(self, x_n, x_e, edge_index,decode_labels,batch_index):
         r_ij,h,t_ij,X = self.embedding(x_n,x_e,edge_index)
 
         for i in range(cfg["layer_num"]):
             h, X, t_ij = self.gata_list[i](h, X, t_ij, r_ij, edge_index)
             h, X = self.eqff_list[i](h, X)
 
-        return 0
+        out = self.decoder(h,X,decode_labels,batch_index)
+
+        return out
 
 class RBFLayer(nn.Module):
+    '''
+    Gaussian Radial Base Function
+    '''
     def __init__(self, out_features, start=0.0, end=cfg["cutoff_radius"]):
         super().__init__()
         self.centers = nn.Parameter(torch.linspace(start, end, out_features))
-        self.gamma = nn.Parameter(torch.ones_like(self.centers) * 1.0)
+
+        delta = (end - start) / (out_features - 1)
+        gamma_init = 1.0 / (2 * delta ** 2)
+        self.gamma = nn.Parameter(torch.ones(self.centers.shape) * gamma_init)
 
     def forward(self, x):
-        x = x.unsqueeze(1)
         centers = self.centers.unsqueeze(0)
-        dist = torch.sum((x-centers)**2,dim=2)
+        dist = (x - centers) ** 2
         return torch.exp(-self.gamma*dist)
 
 def cos_cutoff(d,c=cfg["cutoff_radius"]):
@@ -59,12 +62,13 @@ class SelfAttentionLayer(nn.Module):
         self.w_q = nn.Linear(cfg["node_dim"], cfg["node_dim"], bias=False)
         self.w_k = nn.Linear(cfg["node_dim"], cfg["node_dim"], bias=False)
 
-        self.mlp_u = MLP(in_features=cfg["node_dim"],out_features=out_features)
+        self.mlp_v = MLP(in_features=cfg["node_dim"],out_features=out_features)
 
         self.w_re = nn.Linear(cfg["edge_dim"],cfg["node_dim"],bias=False)
 
         self.ln = nn.LayerNorm(cfg["node_dim"])
         self.act = cfg["activation"]
+        self.dropout = nn.Dropout(cfg["dropout"])
 
     def forward(self, h, t_ij, edge_index):
         n_j, n_i = edge_index
@@ -72,23 +76,23 @@ class SelfAttentionLayer(nn.Module):
 
         q_i = self.w_q(h).reshape(h.shape[0],self.head_num,-1)[n_i]
         k_j = self.w_k(h).reshape(h.shape[0],self.head_num,-1)[n_j]
-        v_j = self.mlp_u(h).reshape(h.shape[0],self.head_num,-1)[n_j]
+        v_j = self.mlp_v(h).reshape(h.shape[0],self.head_num,-1)[n_j]
 
         a_ij = (q_i * k_j * self.act(self.w_re(t_ij).reshape(t_ij.shape[0],self.head_num,-1))).sum(dim=-1,keepdims=True)
-        sea_ij = scatter_softmax(a_ij,n_i,dim=0) * v_j
+        sea_ij = self.dropout(scatter_softmax(a_ij,n_i,dim=0)) * v_j
         sea_ij = sea_ij.reshape(sea_ij.shape[0],-1)
         return sea_ij
 
 class Embedding(nn.Module):
-    def __init__(self, rbf_layer):
+    def __init__(self):
         super().__init__()
-        self.rbf = rbf_layer
+        self.rbf = RBFLayer(cfg["rbf_num"])
 
-        self.w_ndp = nn.Linear(cfg["rbf_num"],cfg["node_dim"],bias=False)
-        self.a_nbr = nn.Linear(len(cfg["atom_types"]),cfg["node_dim"],bias=False)
+        self.w_ndp = nn.Linear(cfg["rbf_num"],cfg["node_dim"], bias=False)
+        self.a_nbr = nn.Linear(len(cfg["atom_types"]),cfg["node_dim"], bias=True)
 
-        self.a_na = nn.Linear(len(cfg["atom_types"]), cfg["node_dim"], bias=False)
-        self.w_nrd = nn.Linear(cfg["node_dim"]*2,cfg["node_dim"],bias=False)
+        self.a_na = nn.Linear(len(cfg["atom_types"]), cfg["node_dim"], bias=True)
+        self.w_nrd = nn.Linear(cfg["node_dim"]*2,cfg["node_dim"], bias=False)
         self.w_nru = nn.Linear(cfg["node_dim"], cfg["node_dim"], bias=False)
 
         self.w_erp = nn.Linear(cfg["rbf_num"], cfg["edge_dim"], bias=False)
@@ -120,7 +124,7 @@ class Embedding(nn.Module):
         rbf_0 = self.rbf(r_0)
 
         # Node Scalar Feature Initialization
-        m_i = scatter_add(self.a_nbr(z)[n_j] * (self.w_ndp(rbf_0) * cos_cutoff(r_0)), n_i, dim=0, dim_size=len(z))
+        m_i = scatter_sum(self.a_nbr(z)[n_j] * (self.w_ndp(rbf_0) * cos_cutoff(r_0)), n_i, dim=0, dim_size=len(z))
         h = self.w_nru(self.act(self.ln(self.w_nrd(torch.cat([self.a_na(z),m_i],dim=1)))))
 
         # Edge Scalar Feature Initialization
@@ -129,11 +133,11 @@ class Embedding(nn.Module):
         # High-degree Steerable Feature Initialization
         sea_ij = self.sea(h,t_ij,edge_index)
         #o_ij = torch.split(sea_ij.unsqueeze(1) + self.w_rs(t_ij).unsqueeze(-1) * self.mlp_s(h[n_j]).unsqueeze(1) * cos_cutoff(r_0).unsqueeze(-1), cfg["node_dim"], dim=-1)
-        o_ij = torch.split(sea_ij + self.w_rs(t_ij) * self.mlp_s(h[n_j]) * cos_cutoff(r_0),cfg["node_dim"], dim=-1)
+        o_ij = torch.split(sea_ij + self.w_rs(t_ij) * self.mlp_s(h)[n_j] * cos_cutoff(r_0),cfg["node_dim"], dim=-1)
         X = []
         for i in range(len(o_ij)):
             l = i + 1
-            X_l = scatter_add(o_ij[i].unsqueeze(1) * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(z))
+            X_l = scatter_sum(o_ij[i].unsqueeze(1) * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(z))
             X.append(X_l)
 
         return r_ij,h,t_ij,X
@@ -174,9 +178,8 @@ class HTR(nn.Module):
         return dt_ij
 
 class GATA(nn.Module):
-    def __init__(self,rbf_layer):
+    def __init__(self):
         super().__init__()
-        self.rbf = rbf_layer
 
         self.htr = HTR()
 
@@ -193,10 +196,10 @@ class GATA(nn.Module):
         t_ij = t_ij + dt_ij
 
         sea_ij = self.sea(h, t_ij, edge_index)
-        o_ij = torch.split(sea_ij + self.w_rs(t_ij) * self.mlp_s(h[n_j]) * cos_cutoff(r_0), cfg["node_dim"], dim=-1)
+        o_ij = torch.split(sea_ij + self.w_rs(t_ij) * self.mlp_s(h)[n_j] * cos_cutoff(r_0), cfg["node_dim"], dim=-1)
 
         o_ij_s = o_ij[0]
-        dh = scatter_add(o_ij_s, n_i, dim=0, dim_size=len(h))
+        dh = scatter_sum(o_ij_s, n_i, dim=0, dim_size=len(h))
         h = h + dh
 
         o_ij_d = o_ij[1:1+cfg["degree_max"]]
@@ -204,23 +207,27 @@ class GATA(nn.Module):
 
         for i in range(len(X)):
             l = i + 1
-            dX_l = scatter_add(o_ij_d[i].unsqueeze(1) * r_ij[l].unsqueeze(-1) + o_ij_t[i].unsqueeze(1) * X[i][n_j], n_i, dim=0, dim_size=len(h))
+            dX_l = scatter_sum(o_ij_d[i].unsqueeze(1) * r_ij[l].unsqueeze(-1) + o_ij_t[i].unsqueeze(1) * X[i][n_j], n_i, dim=0, dim_size=len(h))
             X[i] = X[i] + dX_l
 
         return h, X, t_ij
 
 class EQFF(nn.Module):
+    '''
+    Equivariant Feed Forward
+    '''
     def __init__(self):
         super().__init__()
-        self.w_vu = nn.Linear(cfg["node_dim"],cfg["node_dim"],bias=False)
+        self.epsilon = 1e-8
 
+        self.w_vu = nn.Linear(cfg["node_dim"],cfg["node_dim"],bias=False)
         self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"])
 
     def forward(self, h, X):
         X_ls =  torch.cat(X, dim=1)
         X_vu = self.w_vu(X_ls)
 
-        m1,m2 = torch.split(self.mlp_m(torch.cat([X_vu.norm(dim=1, p=2),h],dim=1)),cfg["node_dim"],dim=-1)
+        m1,m2 = torch.split(self.mlp_m(torch.cat([X_vu.norm(dim=1, p=2) + self.epsilon,h],dim=1)),cfg["node_dim"],dim=-1)
 
         h = h + m1
         X_ls = X_ls + m2.unsqueeze(1) * X_vu
