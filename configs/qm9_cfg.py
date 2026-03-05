@@ -28,5 +28,5 @@ config = {
     'layer_num':6,
     'rbf_num':64,
 
-    'predict_labels': ["lumo"]
+    'predict_label': "homo"
 }

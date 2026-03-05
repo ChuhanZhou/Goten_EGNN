@@ -1,0 +1,65 @@
+from torch_scatter.testing import tensor
+
+from configs.config import config as cfg
+
+import torch
+import numpy as np
+import random
+
+def collate_fn(batch):
+    batch_mass_center_dists = torch.zeros((0, 1))
+    batch_atoms_types = torch.zeros((0,1),dtype=torch.int64)
+    batch_ij_vecs = torch.zeros((0,3))
+
+    batch_prop = []
+    batch_edge_index = torch.zeros((2,0),dtype=torch.int64)
+    atoms_batch_index = []
+    for i, (id, mass_center_dists, atoms_types, ij_pos_vecs, edge_index, prop) in enumerate(batch):
+        edge_index = edge_index + batch_atoms_types.shape[0]
+
+        if batch_mass_center_dists is not None and mass_center_dists is not None:
+            batch_mass_center_dists = torch.cat([batch_mass_center_dists,mass_center_dists], dim=0)
+        else:
+            batch_mass_center_dists = None
+
+        batch_atoms_types = torch.cat((batch_atoms_types,atoms_types), dim=0)
+        batch_ij_vecs = torch.cat((batch_ij_vecs,ij_pos_vecs), dim=0)
+
+        batch_prop.append([prop[cfg["predict_label"]]])
+        batch_edge_index = torch.cat([batch_edge_index,edge_index], dim=1)
+        atoms_batch_index.append(torch.ones(len(atoms_types),dtype=torch.int64)*i)
+    batch_prop = torch.tensor(batch_prop)
+    atoms_batch_index = torch.cat(atoms_batch_index)
+    return batch_mass_center_dists, batch_atoms_types, batch_ij_vecs, batch_edge_index, batch_prop, atoms_batch_index
+
+def get_mean_std(prop_dict_list,prop_labels = None):
+    prop_values = []
+    for prop_dict in prop_dict_list:
+        if prop_labels is None:
+            prop_labels = list(prop_dict.keys())
+        prop_values.append([prop_dict[l] for l in prop_labels])
+
+    prop_values = np.array(prop_values)
+
+    mean = prop_values.mean(axis=0)
+    std = prop_values.std(axis=0)
+
+    return {l: (mean[i],std[i]) for i,l in enumerate(prop_labels)}
+
+def get_std_mat(mean_std_dict,prop_labels = None):
+    mean_mat = []
+    std_mat = []
+
+    for l in prop_labels:
+        mean,std = mean_std_dict[l]
+        mean_mat.append(mean)
+        std_mat.append(std)
+
+    mean_mat = torch.tensor(np.array(mean_mat),dtype=torch.float32).unsqueeze(0)
+    std_mat = torch.tensor(np.array(std_mat), dtype=torch.float32).unsqueeze(0)
+
+    return mean_mat,std_mat
+
+def unit_Ha2meV(ha):
+    return ha * 27211.386245981
+

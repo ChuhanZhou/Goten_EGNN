@@ -1,4 +1,4 @@
-from tool.data_loader import DatasetLoader
+from tool.data_loader import DatasetLoader,unit_Ha2meV
 
 import os
 from tqdm import tqdm
@@ -17,15 +17,15 @@ class Loader(DatasetLoader):
             #"index":prop_list[1],
             "mu": float(prop_list[5]), # dipole moment,
             "alpha": float(prop_list[6]), # isotropic polarizability
-            "homo": float(prop_list[7]), # energy of homo
-            "lumo": float(prop_list[8]), # energy of lumo
-            "gap": float(prop_list[9]), # gap(lumo-homo)
+            "homo": unit_Ha2meV(float(prop_list[7])),  # energy of homo
+            "lumo": unit_Ha2meV(float(prop_list[8])),  # energy of lumo
+            "gap": unit_Ha2meV(float(prop_list[9])),  # gap(lumo-homo)
             "r2": float(prop_list[10]), # electronic spatial extent
-            "zpve": float(prop_list[11]), # zero point vibrational energy
-            "u0": float(prop_list[12]), # internal energy at 0K
-            "u": float(prop_list[13]),  # internal energy at 298.15K
-            "h": float(prop_list[14]),  # enthalpy at 298.15K
-            "g": float(prop_list[15]),  # free energy at 298.15K
+            "zpve": unit_Ha2meV(float(prop_list[11])), # zero point vibrational energy
+            "u0": unit_Ha2meV(float(prop_list[12])), # internal energy at 0K
+            "u": unit_Ha2meV(float(prop_list[13])),  # internal energy at 298.15K
+            "h": unit_Ha2meV(float(prop_list[14])),  # enthalpy at 298.15K
+            "g": unit_Ha2meV(float(prop_list[15])),  # free energy at 298.15K
             "cv": float(prop_list[16]),  # heat capacity at 298.15K
         }
         return prop_dict
@@ -41,7 +41,7 @@ class Loader(DatasetLoader):
         progress_bar = tqdm(desc="[{}] Loading data from {}".format(datetime.datetime.now(),folder_path), total=len(os.listdir(folder_path)))
         atom_set = set()
         for name in os.listdir(folder_path):
-            progress_bar.update(1)
+            progress_bar.update()
             data_path = "{}/{}".format(folder_path, name)
             with open(data_path, 'r', encoding='utf-8') as file:
                 lines = file.readlines()
@@ -76,7 +76,10 @@ class Loader(DatasetLoader):
 
             edge_index = torch.tensor(edge_index, dtype=torch.int64)
             ij_pos_vecs = torch.tensor(np.array(ij_pos_vecs),dtype=torch.float32)
-            dataset.append([name,atoms_type,ij_pos_vecs,edge_index,prop])
+
+            mass_center_dists = None
+
+            dataset.append([name,mass_center_dists,atoms_type,ij_pos_vecs,edge_index,prop])
         progress_bar.close()
         print("Atom types: {}".format(atom_set))
         return dataset

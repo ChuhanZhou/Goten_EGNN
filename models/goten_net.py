@@ -1,5 +1,5 @@
 from configs.config import config as cfg
-from models.decoder import MLP,GraphDecoder
+from models.decoder import MLP,get_decoder
 
 import torch
 import torch.nn as nn
@@ -7,8 +7,12 @@ from e3nn import o3
 from torch_scatter import scatter_softmax,scatter_sum
 
 class GotenNet(nn.Module):
-    def __init__(self, out_labels=cfg["predict_labels"], mean_std=None):
+    def __init__(self, out_label=None, mean=0, std=1):
         super().__init__()
+        if out_label is None:
+            out_label=cfg["predict_label"]
+        self.register_buffer("mean", torch.tensor(mean))
+        self.register_buffer("std", torch.tensor(std))
 
         self.embedding = Embedding()
 
@@ -18,18 +22,24 @@ class GotenNet(nn.Module):
             self.gata_list.append(GATA())
             self.eqff_list.append(EQFF())
 
-        self.decoder = GraphDecoder(out_labels,mean_std)
+        self.decoder = get_decoder(out_label)
 
-    def forward(self, x_n, x_e, edge_index,decode_labels,batch_index):
+    def forward(self, x_n, x_e, edge_index,batch_index):
         r_ij,h,t_ij,X = self.embedding(x_n,x_e,edge_index)
 
         for i in range(cfg["layer_num"]):
             h, X, t_ij = self.gata_list[i](h, X, t_ij, r_ij, edge_index)
             h, X = self.eqff_list[i](h, X)
 
-        out = self.decoder(h,X,decode_labels,batch_index)
+        out = self.decoder(h,X,batch_index)
 
         return out
+
+    def standardize(self,v):
+        return (v - self.mean) / self.std
+
+    def destandardize(self,v):
+        return v * self.std + self.mean
 
 class RBFLayer(nn.Module):
     '''
@@ -196,19 +206,32 @@ class GATA(nn.Module):
         t_ij = t_ij + dt_ij
 
         sea_ij = self.sea(h, t_ij, edge_index)
-        o_ij = torch.split(sea_ij + self.w_rs(t_ij) * self.mlp_s(h)[n_j] * cos_cutoff(r_0), cfg["node_dim"], dim=-1)
+        o_ij = sea_ij + self.w_rs(t_ij) * self.mlp_s(h)[n_j] * cos_cutoff(r_0)
+        o_ij = torch.split(o_ij.unsqueeze(1), cfg["node_dim"], dim=-1)
 
-        o_ij_s = o_ij[0]
+        o_ij_s = o_ij[0].squeeze(1)
         dh = scatter_sum(o_ij_s, n_i, dim=0, dim_size=len(h))
         h = h + dh
 
+        #l_dim_list = [2*l+1 for l in range(1,cfg["degree_max"]+1)]
+        #o_ij_d = o_ij[1:1 + cfg["degree_max"]]
+        #o_ij_d = [o_ij_d[i].expand(-1, l_dim_list[i], -1) for i in range(len(o_ij_d))]
+        #o_ij_d = torch.cat(o_ij_d, dim=1)
+        #o_ij_t = o_ij[1 + cfg["degree_max"]:1 + cfg["degree_max"] * 2]
+        #o_ij_t = [o_ij_t[i].expand(-1, l_dim_list[i], -1) for i in range(len(o_ij_t))]
+        #o_ij_t = torch.cat(o_ij_t, dim=1)
+        #r_ij_d = torch.cat(r_ij[1:],dim=1)
+        #X = torch.cat(X, dim=1)
+        #dX_l = scatter_sum(o_ij_d * r_ij_d.unsqueeze(-1) + o_ij_t * X[n_j], n_i,dim=0, dim_size=len(h))
+        #X = X + dX_l
+        #X = torch.split(X, l_dim_list, dim=1)
+
         o_ij_d = o_ij[1:1+cfg["degree_max"]]
         o_ij_t = o_ij[1+cfg["degree_max"]:1+cfg["degree_max"]*2]
-
         for i in range(len(X)):
-            l = i + 1
-            dX_l = scatter_sum(o_ij_d[i].unsqueeze(1) * r_ij[l].unsqueeze(-1) + o_ij_t[i].unsqueeze(1) * X[i][n_j], n_i, dim=0, dim_size=len(h))
-            X[i] = X[i] + dX_l
+           l = i + 1
+           dX_l = scatter_sum(o_ij_d[i] * r_ij[l].unsqueeze(-1) + o_ij_t[i] * X[i][n_j], n_i, dim=0, dim_size=len(h))
+           X[i] = X[i] + dX_l
 
         return h, X, t_ij
 
