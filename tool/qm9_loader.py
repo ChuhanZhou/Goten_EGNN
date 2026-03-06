@@ -36,12 +36,14 @@ class Loader(DatasetLoader):
             f_list.append(float(s.replace("*^","e")))
         return f_list
 
-    def load(self,folder_path,type_list):
+    def load(self,folder_path,type_list,use_tqdm=True):
         dataset = []
-        progress_bar = tqdm(desc="[{}] Loading data from {}".format(datetime.datetime.now(),folder_path), total=len(os.listdir(folder_path)))
+        if use_tqdm:
+            progress_bar = tqdm(desc="[{}] Loading data from {}".format(datetime.datetime.now(),folder_path), total=len(os.listdir(folder_path)))
         atom_set = set()
         for name in os.listdir(folder_path):
-            progress_bar.update()
+            if use_tqdm:
+                progress_bar.update()
             data_path = "{}/{}".format(folder_path, name)
             with open(data_path, 'r', encoding='utf-8') as file:
                 lines = file.readlines()
@@ -80,6 +82,7 @@ class Loader(DatasetLoader):
             mass_center_dists = None
 
             dataset.append([name,mass_center_dists,atoms_type,ij_pos_vecs,edge_index,prop])
-        progress_bar.close()
+        if use_tqdm:
+            progress_bar.close()
         print("Atom types: {}".format(atom_set))
         return dataset

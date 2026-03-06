@@ -11,7 +11,7 @@ import numpy as np
 import random
 import re
 
-def test(model,dataset,title="testing"):
+def test(model,dataset,title="testing",use_tqdm=True):
     device = cfg['device']
     batch_size = cfg['batch_size']
 
@@ -22,8 +22,9 @@ def test(model,dataset,title="testing"):
 
     test_dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
-    time.sleep(0.01)
-    progress_bar = tqdm(desc="[{}] [{}]".format(datetime.datetime.now(),title), total=len(test_dataloader))
+    if use_tqdm:
+        time.sleep(0.01)
+        progress_bar = tqdm(desc="[{}] [{}]".format(datetime.datetime.now(),title), total=len(test_dataloader))
 
     total_loss = 0
     out_list = []
@@ -43,9 +44,11 @@ def test(model,dataset,title="testing"):
             out_list.append(out.cpu().detach().numpy())
             target_list.append(prop_value.cpu().numpy())
 
-            progress_bar.update()
+            if use_tqdm:
+                progress_bar.update()
 
-    progress_bar.close()
+    if use_tqdm:
+        progress_bar.close()
     avg_loss = total_loss / len(dataset)
 
     outs = np.concatenate(out_list,axis=0)

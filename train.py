@@ -38,9 +38,11 @@ if __name__ == '__main__':
     parser.add_argument('--label', help="target label", type=str, default=cfg['predict_label'])
     parser.add_argument('--epoch', help="maximum epoch number", type=int, default=cfg['epochs'])
     parser.add_argument('--batch', help="batch size", type=int, default=cfg['batch_size'])
+    parser.add_argument('--tqdm', help="print progress bar", type=bool, default=True)
     args = parser.parse_args()
 
     if args.ckpt and not os.path.isfile(args.ckpt):
+        print_log("[{}] Can't find ckpt at [{}]".format(datetime.datetime.now(),args.ckpt))
         args.ckpt = None
 
     cfg['title'] = args.title
@@ -57,7 +59,7 @@ if __name__ == '__main__':
         val_mae_history += ckpt["val_history"]
         load_log(ckpt['log'])
 
-    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'])
+    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],args.tqdm)
 
     device = cfg['device']
     epoch_num = cfg['epochs']
@@ -126,8 +128,9 @@ if __name__ == '__main__':
         model.train()
         train_dataloader = get_epoch_dataloader(base_seed=seed,epoch=epoch,dataset=train_set,batch_size=batch_size,collate_fn=collate_fn)
 
-        time.sleep(0.01)
-        progress_bar = tqdm(desc="[{}] [epoch]:{}".format(datetime.datetime.now(), epoch),total=len(train_dataloader))
+        if args.tqdm:
+            time.sleep(0.01)
+            progress_bar = tqdm(desc="[{}] [epoch]:{}".format(datetime.datetime.now(), epoch),total=len(train_dataloader))
 
         total_loss = 0
         avg_loss = None
@@ -163,19 +166,21 @@ if __name__ == '__main__':
             total_loss += loss.item()
             lr = optimizer.param_groups[0]['lr']
             avg_loss = total_loss / (i+1)
-            progress_bar.set_postfix(
-                lr="{:.3e}".format(lr),
-                loss="{:.3e}".format(loss.item()),
-                avg_loss="{:.3e}".format(avg_loss))
-            progress_bar.update()
+            if args.tqdm:
+                progress_bar.set_postfix(
+                    lr="{:.3e}".format(lr),
+                    loss="{:.3e}".format(loss.item()),
+                    avg_loss="{:.3e}".format(avg_loss))
+                progress_bar.update()
 
             current_step+=1
             if current_step <= cfg["warmup"]:
                 scheduler_warmup.step()
 
-        progress_bar.close()
+        if args.tqdm:
+            progress_bar.close()
 
-        val_loss, val_mae, _ = test(model, val_set,"validating")
+        val_loss, val_mae, _ = test(model, val_set,"validating",args.tqdm)
         val_mae_history.append(val_mae)
         if current_step > cfg["warmup"]:
             scheduler_plateau.step(val_mae)
@@ -195,6 +200,6 @@ if __name__ == '__main__':
             min_val_mae = val_mae
             torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
 
-    _, test_mae,_ = test(model, test_set)
+    _, test_mae,_ = test(model, test_set,use_tqdm=args.tqdm)
     test_result = "[{}] [test] [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), cfg["predict_label"], test_mae)
     print_log(test_result)

@@ -9,7 +9,7 @@ class DatasetLoader(ABC):
         return os.path.isfile(file_path)
 
     @abstractmethod
-    def load(self,folder_path,type_list):
+    def load(self,folder_path,type_list,use_tqdm=True):
         pass
 
 def unit_Ha2meV(ha):
