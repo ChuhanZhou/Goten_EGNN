@@ -13,7 +13,7 @@ conda activate env_egnn
 
 #### Pip
 
-Recommended Python 3.13
+Recommended Python 3.12
 
 ```bash
 pip install -r requirements.txt

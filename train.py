@@ -16,6 +16,7 @@ from torch.utils.data import random_split
 import numpy as np
 import random
 import argparse
+import os
 
 torch.backends.cuda.matmul.allow_tf32 = False
 
@@ -38,6 +39,9 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', help="maximum epoch number", type=int, default=cfg['epochs'])
     parser.add_argument('--batch', help="batch size", type=int, default=cfg['batch_size'])
     args = parser.parse_args()
+
+    if args.ckpt and not os.path.isfile(args.ckpt):
+        args.ckpt = None
 
     cfg['title'] = args.title
     cfg['seed'] = args.seed
@@ -112,7 +116,10 @@ if __name__ == '__main__':
             if current_step <= cfg["warmup"]:
                 scheduler_warmup.step()
         if current_step > cfg["warmup"]:
-            scheduler_plateau.step(val_mae_history[epoch])
+            val_mae = val_mae_history[epoch]
+            scheduler_plateau.step(val_mae)
+            if min_val_mae > val_mae:
+                min_val_mae = val_mae
 
     start_epoch = len(val_mae_history)
     for epoch in range(start_epoch,epoch_num):
@@ -132,7 +139,7 @@ if __name__ == '__main__':
             std_prop_value = model.standardize(prop_value.to(device))
             loss = cfg["loss_func"](out,std_prop_value)
 
-            if torch.isnan(loss) or torch.isinf(loss):
+            if torch.isnan(loss):
                 ckpt = {
                     "model_ckpt": model.state_dict(),
                     "seed": seed,
@@ -140,7 +147,7 @@ if __name__ == '__main__':
                     "log": LogFileName,
                     "val_history":val_mae_history,
                     "out": out.cpu().detach().numpy(),
-                    "target": std_prop_value.numpy(),
+                    "target": std_prop_value.cpu().numpy(),
                     "nan_data": data,
                 }
                 torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}_nan.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
