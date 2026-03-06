@@ -23,7 +23,7 @@ networkx==3.6.1
 numpy==2.3.5
 opt-einsum-fx==0.1.4
 opt_einsum==3.4.0
-packaging @ file:///C:/miniconda3/conda-bld/packaging_1761049099114/work
+#packaging @ file:///C:/miniconda3/conda-bld/packaging_1761049099114/work
 pillow==12.0.0
 propcache==0.4.1
 psutil==7.2.2
