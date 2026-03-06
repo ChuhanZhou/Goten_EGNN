@@ -1,4 +1,4 @@
-from tool.data_loader import DatasetLoader,unit_Ha2meV
+from tool.data_loader import DatasetLoader,unit_Ha2meV,unit_u2mu
 
 import os
 from tqdm import tqdm
@@ -15,18 +15,18 @@ class Loader(DatasetLoader):
         prop_dict = {
             #"tag":prop_list[0],
             #"index":prop_list[1],
-            "mu": float(prop_list[5]), # dipole moment,
-            "alpha": float(prop_list[6]), # isotropic polarizability
+            "mu": unit_u2mu(float(prop_list[5])), # dipole moment,
+            "alpha": unit_u2mu(float(prop_list[6])), # isotropic polarizability
             "homo": unit_Ha2meV(float(prop_list[7])),  # energy of homo
             "lumo": unit_Ha2meV(float(prop_list[8])),  # energy of lumo
             "gap": unit_Ha2meV(float(prop_list[9])),  # gap(lumo-homo)
-            "r2": float(prop_list[10]), # electronic spatial extent
+            "r2": unit_u2mu(float(prop_list[10])), # electronic spatial extent
             "zpve": unit_Ha2meV(float(prop_list[11])), # zero point vibrational energy
             "u0": unit_Ha2meV(float(prop_list[12])), # internal energy at 0K
             "u": unit_Ha2meV(float(prop_list[13])),  # internal energy at 298.15K
             "h": unit_Ha2meV(float(prop_list[14])),  # enthalpy at 298.15K
             "g": unit_Ha2meV(float(prop_list[15])),  # free energy at 298.15K
-            "cv": float(prop_list[16]),  # heat capacity at 298.15K
+            "cv": unit_u2mu(float(prop_list[16])),  # heat capacity at 298.15K
         }
         return prop_dict
 

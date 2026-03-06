@@ -14,3 +14,6 @@ class DatasetLoader(ABC):
 
 def unit_Ha2meV(ha):
     return ha * 27211.386245981
+
+def unit_u2mu(a):
+    return a*1e3

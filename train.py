@@ -38,8 +38,9 @@ if __name__ == '__main__':
     parser.add_argument('--label', help="target label", type=str, default=cfg['predict_label'])
     parser.add_argument('--epoch', help="maximum epoch number", type=int, default=cfg['epochs'])
     parser.add_argument('--batch', help="batch size", type=int, default=cfg['batch_size'])
-    parser.add_argument('--tqdm', help="print progress bar", type=bool, default=True)
+    parser.add_argument('--tqdm', help="print progress bar", type=str, default="True")
     args = parser.parse_args()
+    args.tqdm = args.tqdm.lower() == "true"
 
     if args.ckpt and not os.path.isfile(args.ckpt):
         print_log("[{}] Can't find ckpt at [{}]".format(datetime.datetime.now(),args.ckpt))
