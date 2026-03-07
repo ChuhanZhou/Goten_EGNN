@@ -12,7 +12,7 @@ import datetime
 import torch
 import time
 from torch.optim.lr_scheduler import LambdaLR,ReduceLROnPlateau
-from torch.utils.data import random_split
+from torch.utils.data import random_split, Subset
 import numpy as np
 import random
 import argparse
@@ -59,6 +59,8 @@ if __name__ == '__main__':
         cfg["predict_label"] = ckpt["label"]
         val_mae_history += ckpt["val_history"]
         load_log(ckpt['log'])
+    else:
+        ckpt = None
 
     dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],args.tqdm)
 
@@ -80,18 +82,20 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    if cfg["train_size"]>=1 and cfg["val_size"]>=1 and cfg["test_size"]>=1:
-        data_drop_len = len(dataset) - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
+    if args.ckpt:
+        train_set = Subset(dataset, ckpt["datasets"]["train"])
+        val_set = Subset(dataset, ckpt["datasets"]["valid"])
+        test_set = Subset(dataset, ckpt["datasets"]["test"])
     else:
-        data_drop_len = 1.0 - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
+        if cfg["train_size"]>=1 and cfg["val_size"]>=1 and cfg["test_size"]>=1:
+            data_drop_len = len(dataset) - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
+        else:
+            data_drop_len = 1.0 - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
 
-    split_g = torch.Generator().manual_seed(seed)
-    if data_drop_len!=0:
-        train_set, val_set, test_set, _ = random_split(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len],generator=split_g)
-    else:
-        train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]],generator=split_g)
-
-    print(train_set[2][0],val_set[3][0],test_set[4][0])
+        if data_drop_len!=0:
+            train_set, val_set, test_set, _ = random_split(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len])
+        else:
+            train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]])
 
     prop_mean_std = get_mean_std([data[-1] for data in train_set])
     mean, std = prop_mean_std[cfg["predict_label"]]
@@ -155,6 +159,11 @@ if __name__ == '__main__':
                     "model_ckpt": model.state_dict(),
                     "seed": seed,
                     "label": cfg["predict_label"],
+                    "datasets": {
+                        "train": train_set.indices,
+                        "valid": val_set.indices,
+                        "test": test_set.indices,
+                    },
                     "log": LogFileName,
                     "val_history":val_mae_history,
                     "out": out.cpu().detach().numpy(),
@@ -200,6 +209,11 @@ if __name__ == '__main__':
             "model_ckpt":model.state_dict(),
             "seed": seed,
             "label": cfg["predict_label"],
+            "datasets": {
+                "train": train_set.indices,
+                "valid": val_set.indices,
+                "test": test_set.indices,
+            },
             "log": LogFileName,
             "val_history":val_mae_history,
         }

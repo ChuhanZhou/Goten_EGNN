@@ -6,7 +6,7 @@ from tqdm import tqdm
 import datetime
 import torch
 import time
-from torch.utils.data import random_split
+from torch.utils.data import Subset
 import numpy as np
 import random
 import re
@@ -61,39 +61,19 @@ def test(model,dataset,title="testing",use_tqdm=True):
 if __name__ == '__main__':
     ckpt_path = "./ckpt/QM9_B_t107109_s11_homo.pth"
     ckpt = torch.load(ckpt_path, weights_only=False)
-    cfg['seed'] = ckpt["seed"]
     cfg['predict_label'] = ckpt["label"]
 
-    seed = cfg['seed']
-
-    if seed is not None:
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-
     dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'])
-
-    if cfg["train_size"] >= 1 and cfg["val_size"] >= 1 and cfg["test_size"] >= 1:
-        data_drop_len = len(dataset) - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
-    else:
-        data_drop_len = 1.0 - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
-
-    split_g = torch.Generator().manual_seed(seed)
-    if data_drop_len != 0:
-        train_set, val_set, test_set, _ = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"],data_drop_len],generator=split_g)
-    else:
-        train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]],generator=split_g)
+    train_set = Subset(dataset, ckpt["datasets"]["train"])
+    val_set = Subset(dataset, ckpt["datasets"]["valid"])
+    test_set = Subset(dataset, ckpt["datasets"]["test"])
 
     model = GotenNet()
     model.load_state_dict(ckpt["model_ckpt"], strict=True)
 
-    #train_loss, train_mae, _ = test(model, train_set, title="train_set")
-    #time.sleep(0.01)
-    #print("[{}] [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), cfg['predict_label'], train_mae))
+    train_loss, train_mae, _ = test(model, train_set, title="train_set")
+    time.sleep(0.01)
+    print("[{}] [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), cfg['predict_label'], train_mae))
 
     val_loss, val_mae, _ = test(model, val_set, title="val_set")
     time.sleep(0.01)
