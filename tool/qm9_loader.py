@@ -36,7 +36,7 @@ class Loader(DatasetLoader):
             f_list.append(float(s.replace("*^","e")))
         return f_list
 
-    def load(self,folder_path,type_list,use_tqdm=True):
+    def load_unsorted_data(self,folder_path,type_list,use_tqdm=True):
         dataset = []
         if use_tqdm:
             progress_bar = tqdm(desc="[{}] Loading data from {}".format(datetime.datetime.now(),folder_path), total=len(os.listdir(folder_path)))

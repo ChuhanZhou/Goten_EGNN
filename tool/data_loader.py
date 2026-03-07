@@ -8,8 +8,13 @@ class DatasetLoader(ABC):
             return False
         return os.path.isfile(file_path)
 
-    @abstractmethod
     def load(self,folder_path,type_list,use_tqdm=True):
+        dataset = self.load_unsorted_data(folder_path,type_list,use_tqdm)
+        dataset.sort(key=lambda x: x[0]) #sort dataset to ensure the same sequence on different devices
+        return dataset
+
+    @abstractmethod
+    def load_unsorted_data(self, folder_path, type_list, use_tqdm=True):
         pass
 
 def unit_Ha2meV(ha):
