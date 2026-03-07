@@ -17,6 +17,7 @@ class MLP(nn.Module):
             hidden_dim = in_features
 
         self.mlp = nn.Sequential(
+            nn.LayerNorm(in_features),
             nn.Linear(in_features, hidden_dim),
             cfg["activation"],
             nn.Linear(hidden_dim, out_features),

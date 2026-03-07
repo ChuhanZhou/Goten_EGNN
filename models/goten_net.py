@@ -241,16 +241,17 @@ class EQFF(nn.Module):
     '''
     def __init__(self):
         super().__init__()
-        #self.epsilon = 1e-8
+        self.epsilon = 1e-8
 
         self.w_vu = nn.Linear(cfg["node_dim"],cfg["node_dim"],bias=False)
         self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"])
 
     def forward(self, h, X):
         X_ls =  torch.cat(X, dim=1)
-        X_vu = torch.clamp(self.w_vu(X_ls), -1e6, 1e6) # make sure .norm() could not give inf
+        X_vu = self.w_vu(X_ls)
+        #X_vu = torch.clamp(self.w_vu(X_ls), -1e4, 1e4) # make sure .norm() could not give inf
 
-        m1,m2 = torch.split(self.mlp_m(torch.cat([X_vu.norm(dim=1, p=2),h],dim=1)),cfg["node_dim"],dim=-1)
+        m1,m2 = torch.split(self.mlp_m(torch.cat([X_vu.norm(dim=1, p=2) + self.epsilon,h],dim=1)),cfg["node_dim"],dim=-1)
 
         h = h + m1
         X_ls = X_ls + m2.unsqueeze(1) * X_vu

@@ -68,23 +68,30 @@ if __name__ == '__main__':
     lr = cfg['lr_max']
     seed = cfg['seed']
 
-    if seed is not None:
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+    if seed is None:
+        seed = random.randint(1, 10000)
+        cfg['seed'] = seed
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     if cfg["train_size"]>=1 and cfg["val_size"]>=1 and cfg["test_size"]>=1:
         data_drop_len = len(dataset) - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
     else:
         data_drop_len = 1.0 - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
 
+    split_g = torch.Generator().manual_seed(seed)
     if data_drop_len!=0:
-        train_set, val_set, test_set, _ = random_split(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len])
+        train_set, val_set, test_set, _ = random_split(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len],generator=split_g)
     else:
-        train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]])
+        train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]],generator=split_g)
+
+    print(train_set[2][0],val_set[3][0],test_set[4][0])
 
     prop_mean_std = get_mean_std([data[-1] for data in train_set])
     mean, std = prop_mean_std[cfg["predict_label"]]

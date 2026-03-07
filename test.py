@@ -59,14 +59,18 @@ def test(model,dataset,title="testing",use_tqdm=True):
     return avg_loss,avg_mae,out_labels
 
 if __name__ == '__main__':
-    ckpt_path = "./ckpt/QM9_S_d107109_e1000_s1.pth"
+    ckpt_path = "./ckpt/QM9_B_t107109_s11_homo.pth"
     ckpt = torch.load(ckpt_path, weights_only=False)
-    seed = ckpt["seed"]
+    cfg['seed'] = ckpt["seed"]
+    cfg['predict_label'] = ckpt["label"]
+
+    seed = cfg['seed']
 
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -78,19 +82,24 @@ if __name__ == '__main__':
     else:
         data_drop_len = 1.0 - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
 
+    split_g = torch.Generator().manual_seed(seed)
     if data_drop_len != 0:
-        _, val_set, test_set, _ = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"],data_drop_len])
+        train_set, val_set, test_set, _ = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"],data_drop_len],generator=split_g)
     else:
-        _, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]])
+        train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]],generator=split_g)
 
-    prop_mean_std = ckpt["mean_std"]
     model = GotenNet()
-    model.load_state_dict(ckpt["model_ckpt"], strict=False)
+    model.load_state_dict(ckpt["model_ckpt"], strict=True)
 
-    val_loss, val_mae, _ = test(model, val_set, title="validating")
+    #train_loss, train_mae, _ = test(model, train_set, title="train_set")
+    #time.sleep(0.01)
+    #print("[{}] [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), cfg['predict_label'], train_mae))
+
+    val_loss, val_mae, _ = test(model, val_set, title="val_set")
+    time.sleep(0.01)
     print("[{}] [MAE]: ({}):{:.2f}".format(datetime.datetime.now(),cfg['predict_label'], val_mae))
 
-    test_loss, test_mae, _ = test(model, test_set)
+    test_loss, test_mae, _ = test(model, test_set, title="test_set")
 
     test_result = "[{}] [test_loss]:{:.3e} [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), test_loss, cfg['predict_label'], test_mae)
     print(test_result)
