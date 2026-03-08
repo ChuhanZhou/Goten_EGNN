@@ -244,7 +244,7 @@ class EQFF(nn.Module):
         self.epsilon = 1e-8
 
         self.w_vu = nn.Linear(cfg["node_dim"],cfg["node_dim"],bias=False)
-        self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"])
+        self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"],pre_norm=True)
 
     def forward(self, h, X):
         X_ls =  torch.cat(X, dim=1)
