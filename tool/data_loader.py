@@ -10,7 +10,10 @@ class DatasetLoader(ABC):
 
     def load(self,folder_path,type_list,use_tqdm=True):
         dataset = self.load_unsorted_data(folder_path,type_list,use_tqdm)
-        dataset.sort(key=lambda x: x[0]) #sort dataset to ensure the same sequence on different devices
+
+        # sort dataset to ensure the same sequence on different devices
+        dataset.sort(key=lambda x: x[0])
+
         return dataset
 
     @abstractmethod

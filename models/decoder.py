@@ -10,20 +10,24 @@ from torch_scatter import scatter_sum
 from abc import ABC, abstractmethod
 
 class MLP(nn.Module):
-    def __init__(self,in_features,out_features,hidden_dim=None):
+    def __init__(self,in_features,out_features,hidden_dim=None,pre_norm=False):
         super().__init__()
 
         if hidden_dim is None:
             hidden_dim = in_features
 
+        self.pre_norm = pre_norm
+        self.ln = nn.LayerNorm(in_features)
+
         self.mlp = nn.Sequential(
-            nn.LayerNorm(in_features),
             nn.Linear(in_features, hidden_dim),
             cfg["activation"],
             nn.Linear(hidden_dim, out_features),
         )
 
     def forward(self, x):
+        if self.pre_norm:
+            x = self.ln(x)
         return self.mlp(x)
 
 def get_decoder(label):

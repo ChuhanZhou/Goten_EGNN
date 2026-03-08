@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from configs import qm9_s_cfg as ds_cfg
+from configs import qm9_cfg as ds_cfg
 
 config = {
     'log_path': "./log",

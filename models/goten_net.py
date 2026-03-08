@@ -251,7 +251,7 @@ class EQFF(nn.Module):
         X_vu = self.w_vu(X_ls)
         #X_vu = torch.clamp(self.w_vu(X_ls), -1e4, 1e4) # make sure .norm() could not give inf
 
-        m1,m2 = torch.split(self.mlp_m(torch.cat([X_vu.norm(dim=1, p=2) + self.epsilon,h],dim=1)),cfg["node_dim"],dim=-1)
+        m1,m2 = torch.split(self.mlp_m(torch.cat([torch.log(X_vu.norm(dim=1, p=2) + self.epsilon),h],dim=1)),cfg["node_dim"],dim=-1)
 
         h = h + m1
         X_ls = X_ls + m2.unsqueeze(1) * X_vu
