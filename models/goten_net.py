@@ -1,3 +1,5 @@
+from sympy.printing.pretty.pretty_symbology import atoms_table
+
 from configs.config import config as cfg
 from models.decoder import MLP,get_decoder
 
@@ -213,19 +215,6 @@ class GATA(nn.Module):
         dh = scatter_sum(o_ij_s, n_i, dim=0, dim_size=len(h))
         h = h + dh
 
-        #l_dim_list = [2*l+1 for l in range(1,cfg["degree_max"]+1)]
-        #o_ij_d = o_ij[1:1 + cfg["degree_max"]]
-        #o_ij_d = [o_ij_d[i].expand(-1, l_dim_list[i], -1) for i in range(len(o_ij_d))]
-        #o_ij_d = torch.cat(o_ij_d, dim=1)
-        #o_ij_t = o_ij[1 + cfg["degree_max"]:1 + cfg["degree_max"] * 2]
-        #o_ij_t = [o_ij_t[i].expand(-1, l_dim_list[i], -1) for i in range(len(o_ij_t))]
-        #o_ij_t = torch.cat(o_ij_t, dim=1)
-        #r_ij_d = torch.cat(r_ij[1:],dim=1)
-        #X = torch.cat(X, dim=1)
-        #dX_l = scatter_sum(o_ij_d * r_ij_d.unsqueeze(-1) + o_ij_t * X[n_j], n_i,dim=0, dim_size=len(h))
-        #X = X + dX_l
-        #X = torch.split(X, l_dim_list, dim=1)
-
         o_ij_d = o_ij[1:1+cfg["degree_max"]]
         o_ij_t = o_ij[1+cfg["degree_max"]:1+cfg["degree_max"]*2]
         for i in range(len(X)):
@@ -244,14 +233,16 @@ class EQFF(nn.Module):
         self.epsilon = 1e-8
 
         self.w_vu = nn.Linear(cfg["node_dim"],cfg["node_dim"],bias=False)
-        self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"],pre_norm=True)
+        self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"])
 
     def forward(self, h, X):
         X_ls =  torch.cat(X, dim=1)
         X_vu = self.w_vu(X_ls)
-        #X_vu = torch.clamp(self.w_vu(X_ls), -1e4, 1e4) # make sure .norm() could not give inf
 
-        m1,m2 = torch.split(self.mlp_m(torch.cat([torch.log(X_vu.norm(dim=1, p=2) + self.epsilon),h],dim=1)),cfg["node_dim"],dim=-1)
+        # make sure .norm() could not give inf
+        X_vu_l2 = torch.clamp(torch.sqrt(torch.sum(X_vu**2, dim=1) + self.epsilon),max=50)
+
+        m1,m2 = torch.split(self.mlp_m(torch.cat([X_vu_l2, h],dim=1)),cfg["node_dim"],dim=-1)
 
         h = h + m1
         X_ls = X_ls + m2.unsqueeze(1) * X_vu
