@@ -154,7 +154,7 @@ if __name__ == '__main__':
             std_prop_value = model.standardize(prop_value.to(device))
             loss = cfg["loss_func"](out,std_prop_value)
 
-            if torch.isnan(loss):
+            if torch.isnan(loss) or torch.isinf(loss):
                 ckpt = {
                     "model_ckpt": model.state_dict(),
                     "seed": seed,

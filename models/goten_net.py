@@ -162,7 +162,8 @@ class HTR(nn.Module):
         for i in range(cfg["degree_max"]):
             self.w_vk.append(nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=False))
 
-        self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"])
+        # pre-norm is not in the paper, but network has high possibility of exploding (numerical overflow) after depth 4
+        self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"],pre_norm=True)
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
     def forward(self, X, t_ij, edge_index):
@@ -238,11 +239,9 @@ class EQFF(nn.Module):
     def forward(self, h, X):
         X_ls =  torch.cat(X, dim=1)
         X_vu = self.w_vu(X_ls)
+        X_vu_l2 = torch.sqrt(torch.sum(X_vu**2, dim=1) + self.epsilon)
 
-        # make sure .norm() could not give inf
-        X_vu_l2 = torch.clamp(torch.sqrt(torch.sum(X_vu**2, dim=1) + self.epsilon),max=50)
-
-        m1,m2 = torch.split(self.mlp_m(torch.cat([X_vu_l2, h],dim=1)),cfg["node_dim"],dim=-1)
+        m1, m2 = torch.split(self.mlp_m(torch.cat([X_vu_l2, h], dim=1)), cfg["node_dim"],dim=-1)
 
         h = h + m1
         X_ls = X_ls + m2.unsqueeze(1) * X_vu
