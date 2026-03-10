@@ -122,14 +122,15 @@ if __name__ == '__main__':
 
     #Preparing to continue training
     for epoch in range(len(val_mae_history)):
-        train_dataloader = get_epoch_dataloader(base_seed=seed, epoch=epoch, dataset=train_set, batch_size=batch_size,collate_fn=collate_fn)
-        for i, data in enumerate(train_dataloader):
-            current_step += 1
-            optimizer.step()
-            optimizer.zero_grad()
-            if current_step <= cfg["warmup"]:
-                scheduler_warmup.step()
-        if current_step > cfg["warmup"]:
+        if current_step < cfg["warmup"]:
+            train_dataloader = get_epoch_dataloader(base_seed=seed, epoch=epoch, dataset=train_set, batch_size=batch_size,collate_fn=collate_fn)
+            for i, data in enumerate(train_dataloader):
+                current_step += 1
+                optimizer.step()
+                optimizer.zero_grad()
+                if current_step <= cfg["warmup"]:
+                    scheduler_warmup.step()
+        else:
             val_mae = val_mae_history[epoch]
             scheduler_plateau.step(val_mae)
             if min_val_mae > val_mae:
