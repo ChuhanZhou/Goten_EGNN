@@ -62,7 +62,7 @@ if __name__ == '__main__':
     else:
         ckpt = None
 
-    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],args.tqdm)
+    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],use_tqdm=args.tqdm)
 
     device = cfg['device']
     epoch_num = cfg['epochs']

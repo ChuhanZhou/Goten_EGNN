@@ -13,8 +13,8 @@ class GotenNet(nn.Module):
         super().__init__()
         if out_label is None:
             out_label=cfg["predict_label"]
-        self.register_buffer("mean", torch.tensor(mean))
-        self.register_buffer("std", torch.tensor(std))
+        self.register_buffer("mean", torch.tensor(mean, dtype=torch.float32))
+        self.register_buffer("std", torch.tensor(std, dtype=torch.float32))
 
         self.embedding = Embedding()
 
