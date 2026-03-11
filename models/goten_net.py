@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from e3nn import o3
 from torch_scatter import scatter_softmax,scatter_sum
+import math
 
 class GotenNet(nn.Module):
     def __init__(self, out_label=None, mean=0, std=1):
@@ -78,20 +79,24 @@ class SelfAttentionLayer(nn.Module):
 
         self.w_re = nn.Linear(cfg["edge_dim"],cfg["node_dim"],bias=False)
 
-        self.ln = nn.LayerNorm(cfg["node_dim"])
         self.act = cfg["activation"]
         self.dropout = nn.Dropout(cfg["dropout"])
 
     def forward(self, h, t_ij, edge_index):
         n_j, n_i = edge_index
-        h = self.ln(h)
 
         q_i = self.w_q(h).reshape(h.shape[0],self.head_num,-1)[n_i]
         k_j = self.w_k(h).reshape(h.shape[0],self.head_num,-1)[n_j]
         v_j = self.mlp_v(h).reshape(h.shape[0],self.head_num,-1)[n_j]
 
-        a_ij = (q_i * k_j * self.act(self.w_re(t_ij).reshape(t_ij.shape[0],self.head_num,-1))).sum(dim=-1,keepdims=True)
-        sea_ij = self.dropout(scatter_softmax(a_ij,n_i,dim=0)) * v_j
+        a_ij = (q_i * k_j * self.act(self.w_re(t_ij)).reshape(t_ij.shape[0],self.head_num,-1)).sum(dim=-1,keepdims=True)
+
+        # not in the paper but in the author's code
+        norm = 1 / math.sqrt(v_j.shape[2])
+
+        a_i = scatter_softmax(a_ij,n_i,dim=0)
+        a_i = self.dropout(a_i * norm)
+        sea_ij = a_i * v_j
         sea_ij = sea_ij.reshape(sea_ij.shape[0],-1)
         return sea_ij
 
@@ -143,6 +148,7 @@ class Embedding(nn.Module):
         t_ij = (h[n_i]+h[n_j]) * self.w_erp(rbf_0)
 
         # High-degree Steerable Feature Initialization
+        h = self.ln(h)
         sea_ij = self.sea(h,t_ij,edge_index)
         #o_ij = torch.split(sea_ij.unsqueeze(1) + self.w_rs(t_ij).unsqueeze(-1) * self.mlp_s(h[n_j]).unsqueeze(1) * cos_cutoff(r_0).unsqueeze(-1), cfg["node_dim"], dim=-1)
         o_ij = torch.split(sea_ij + self.w_rs(t_ij) * self.mlp_s(h)[n_j] * cos_cutoff(r_0),cfg["node_dim"], dim=-1)
@@ -201,9 +207,12 @@ class GATA(nn.Module):
         self.w_rs = nn.Linear(cfg["edge_dim"], S * cfg["node_dim"], bias=False)
         self.mlp_s = MLP(in_features=cfg["node_dim"],out_features=S * cfg["node_dim"])
 
+        self.ln = nn.LayerNorm(cfg["node_dim"])
+
     def forward(self, h, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
         r_0 = r_ij[0]
+        h = self.ln(h)
 
         dt_ij = self.htr(X, t_ij, edge_index)
         t_ij = t_ij + dt_ij
@@ -234,7 +243,7 @@ class EQFF(nn.Module):
         self.epsilon = 1e-8
 
         self.w_vu = nn.Linear(cfg["node_dim"],cfg["node_dim"],bias=False)
-        self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"])
+        self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"],pre_norm=True)
 
     def forward(self, h, X):
         X_ls =  torch.cat(X, dim=1)

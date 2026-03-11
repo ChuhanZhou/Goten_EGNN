@@ -115,7 +115,7 @@ if __name__ == '__main__':
         mode='min',
         factor=cfg["lr_decay"],
         patience=cfg["lr_patience"],
-        min_lr=1e-7)
+        min_lr=1e-6)
 
     current_step = 0
     min_val_mae = math.inf

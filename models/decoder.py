@@ -6,7 +6,7 @@ from configs.config import config as cfg
 
 import torch
 import torch.nn as nn
-from torch_scatter import scatter_sum
+from torch_scatter import scatter_sum,scatter_mean
 from abc import ABC, abstractmethod
 
 class MLP(nn.Module):
