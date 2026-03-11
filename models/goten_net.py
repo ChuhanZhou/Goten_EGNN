@@ -92,10 +92,11 @@ class SelfAttentionLayer(nn.Module):
         a_ij = (q_i * k_j * self.act(self.w_re(t_ij)).reshape(t_ij.shape[0],self.head_num,-1)).sum(dim=-1,keepdims=True)
 
         # not in the paper but in the author's code
-        norm = 1 / math.sqrt(v_j.shape[2])
+        n_i_edges = scatter_sum(torch.ones(a_ij.shape,device=a_ij.device),n_i,dim=0)
+        norm = torch.sqrt(n_i_edges) / math.sqrt(v_j.shape[2])
 
         a_i = scatter_softmax(a_ij,n_i,dim=0)
-        a_i = self.dropout(a_i * norm)
+        a_i = self.dropout(a_i * norm[n_i])
         sea_ij = a_i * v_j
         sea_ij = sea_ij.reshape(sea_ij.shape[0],-1)
         return sea_ij

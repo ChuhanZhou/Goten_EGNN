@@ -224,5 +224,5 @@ if __name__ == '__main__':
             torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
 
     _, test_mae,_ = test(model, test_set,use_tqdm=args.tqdm)
-    test_result = "[{}] [test] [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), cfg["predict_label"], test_mae)
+    test_result = "[{}] [test] [MAE]: {:.2f}".format(datetime.datetime.now(), cfg["predict_label"], test_mae)
     print_log(test_result)
