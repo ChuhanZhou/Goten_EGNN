@@ -11,6 +11,8 @@ config = {
     #'val_size':10000,
     #'test_size':10000,
 
+    'atom_types': ['H', 'N', 'F', 'C', 'O'],
+
     'warmup': 10000,
     'lr_max': 1e-4,
     'lr_decay': 0.8,

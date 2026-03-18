@@ -9,6 +9,7 @@ config = {
     'train_size':0.8,
     'val_size':0.1,
     'test_size':0.1,
+    'test_in_train':True,
 
     'atom_types': ['H', 'N', 'F', 'C', 'O'],
 
@@ -23,6 +24,9 @@ config = {
     'cutoff_radius': 5.0,
 
     'activation': nn.SiLU(),
+    'weight_init': nn.init.xavier_uniform_,
+    'bias_init': nn.init.zeros_,
+    'combine_heads': False,
 }
 
 if 'dataset_cfg' in config.keys() and config['dataset_cfg']:

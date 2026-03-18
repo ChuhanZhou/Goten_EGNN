@@ -155,26 +155,6 @@ if __name__ == '__main__':
             std_prop_value = model.standardize(prop_value.to(device))
             loss = cfg["loss_func"](out,std_prop_value)
 
-            if torch.isnan(loss) or torch.isinf(loss):
-                ckpt = {
-                    "model_ckpt": model.state_dict(),
-                    "seed": seed,
-                    "label": cfg["predict_label"],
-                    "datasets": {
-                        "train": train_set.indices,
-                        "valid": val_set.indices,
-                        "test": test_set.indices,
-                    },
-                    "log": LogFileName,
-                    "val_history":val_mae_history,
-                    "out": out.cpu().detach().numpy(),
-                    "target": std_prop_value.cpu().numpy(),
-                    "nan_data": data,
-                }
-                torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}_nan.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
-                print_log("Training ended because of nan.")
-                sys.exit()
-
             loss.backward()
             if cfg["grad_clip"]:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["grad_clip"])
@@ -198,12 +178,17 @@ if __name__ == '__main__':
         if args.tqdm:
             progress_bar.close()
 
-        val_loss, val_mae, _ = test(model, val_set,"validating",args.tqdm)
+        val_loss, val_mae, _ = test(model, val_set,"val_set",args.tqdm)
         val_mae_history.append(val_mae)
         if current_step > cfg["warmup"]:
             scheduler_plateau.step(val_mae)
 
-        epoch_result = "[{}] [epoch]:{} [lr]:{:.3e} [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):{:.2f}".format(datetime.datetime.now(),epoch,lr,avg_loss,val_loss,cfg["predict_label"],val_mae)
+        epoch_result = "[{}] [epoch]:{} [lr]:{:.3e} [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), epoch, lr, avg_loss, val_loss, cfg["predict_label"], val_mae)
+
+        if cfg["test_in_train"]:
+            _, test_mae, _ = test(model, test_set, "test_set", args.tqdm)
+            epoch_result += " [{:.2f}]".format(test_mae)
+
         print_log(epoch_result)
 
         ckpt = {
@@ -224,5 +209,5 @@ if __name__ == '__main__':
             torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
 
     _, test_mae,_ = test(model, test_set,use_tqdm=args.tqdm)
-    test_result = "[{}] [test] [MAE]: {:.2f}".format(datetime.datetime.now(), cfg["predict_label"], test_mae)
+    test_result = "[{}] [test] [MAE]: {:.2f}".format(datetime.datetime.now(), test_mae)
     print_log(test_result)

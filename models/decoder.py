@@ -9,6 +9,8 @@ import torch.nn as nn
 from torch_scatter import scatter_sum,scatter_mean
 from abc import ABC, abstractmethod
 
+
+
 class MLP(nn.Module):
     def __init__(self,in_features,out_features,hidden_dim=None,pre_norm=False):
         super().__init__()
@@ -16,8 +18,9 @@ class MLP(nn.Module):
         if hidden_dim is None:
             hidden_dim = in_features
 
-        self.pre_norm = pre_norm
-        self.ln = nn.LayerNorm(in_features)
+        self.ln = None
+        if pre_norm:
+            self.ln = nn.LayerNorm(in_features)
 
         self.mlp = nn.Sequential(
             nn.Linear(in_features, hidden_dim),
@@ -26,7 +29,7 @@ class MLP(nn.Module):
         )
 
     def forward(self, x):
-        if self.pre_norm:
+        if self.ln is not None:
             x = self.ln(x)
         return self.mlp(x)
 
@@ -35,27 +38,27 @@ def get_decoder(label):
         case "mu":
             raise NotImplementedError("Don't know how to decode: {}".format(label))
         case "alpha":
-            return ScalerDecoder(cfg["node_dim"])
+            return ExtensiveScalerDecoder(cfg["node_dim"])
         case "homo":
-            return ScalerDecoder(cfg["node_dim"])
+            return IntensiveScalerDecoder(cfg["node_dim"])
         case "lumo":
-            return ScalerDecoder(cfg["node_dim"])
+            return IntensiveScalerDecoder(cfg["node_dim"])
         case "gap":
             raise NotImplementedError("Don't know how to decode: {}".format(label))
         case "r2":
             raise NotImplementedError("Don't know how to decode: {}".format(label))
         case "zpve":
-            return ScalerDecoder(cfg["node_dim"])
+            return ExtensiveScalerDecoder(cfg["node_dim"])
         case "u0":
-            return ScalerDecoder(cfg["node_dim"])
+            return ExtensiveScalerDecoder(cfg["node_dim"])
         case "u":
-            return ScalerDecoder(cfg["node_dim"])
+            return ExtensiveScalerDecoder(cfg["node_dim"])
         case "h":
-            return ScalerDecoder(cfg["node_dim"])
+            return ExtensiveScalerDecoder(cfg["node_dim"])
         case "g":
-            return ScalerDecoder(cfg["node_dim"])
+            return ExtensiveScalerDecoder(cfg["node_dim"])
         case "cv":
-            return ScalerDecoder(cfg["node_dim"])
+            return ExtensiveScalerDecoder(cfg["node_dim"])
         case other:
             raise NotImplementedError("Don't know how to decode: {}".format(label))
 
@@ -72,20 +75,25 @@ class EquivariantDecoder(GraphDecoder):
         super().__init__()
         self.decoder = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim)
 
-class ScalerDecoder(GraphDecoder):
+class IntensiveScalerDecoder(GraphDecoder):
     def __init__(self,in_features,hidden_dim=None):
         super().__init__()
         self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim)
+        #self.ln = nn.LayerNorm(in_features)
 
     def forward(self, scaler, vector, batch_index):
-        graph_scaler = scatter_sum(scaler, batch_index, dim=0)
+        #scaler = self.ln(scaler)
+        graph_scaler = scatter_mean(scaler, batch_index, dim=0)
         out = self.decoder(graph_scaler)
         return out
 
-    def toInvariant(self, X):
-        outs = []
-        for X_l in X:
-            l_norm = torch.norm(X_l, dim=1)
-            outs.append(l_norm)
-        return torch.cat(outs, dim=1)
+class ExtensiveScalerDecoder(GraphDecoder):
+    def __init__(self,in_features,hidden_dim=None):
+        super().__init__()
+        self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim,pre_norm=True)
+
+    def forward(self, scaler, vector, batch_index):
+        node_scaler = self.decoder(scaler)
+        out = scatter_sum(node_scaler, batch_index, dim=0)
+        return out
 

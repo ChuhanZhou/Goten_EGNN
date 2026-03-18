@@ -53,10 +53,9 @@ class Loader(DatasetLoader):
             atom_num = int(lines[0])
             for line in lines[2:2+atom_num]:
                 atom_set.add(line.split()[0])
-                atoms_type.append([type_list.index(line.split()[0])])
+                atoms_type.append(type_list.index(line.split()[0]))
                 atoms_xyz.append(self.xyz_str2float(line.split()[1:-1]))
-
-            atoms_type = torch.tensor(atoms_type,dtype=torch.int64)
+            atoms_type = torch.tensor(atoms_type,dtype=torch.int64).unsqueeze(1)
             atoms_xyz = np.array(atoms_xyz)
 
             prop = self.prop_str2dict(lines[1])
