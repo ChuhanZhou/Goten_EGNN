@@ -20,6 +20,7 @@ config = {
     'dropout': 0.1, # for self-attention only
 
     'degree_max': 2,
+    'high_degree_sizes':None,
     'attention_heads': 8,
     'cutoff_radius': 5.0,
 
@@ -27,7 +28,10 @@ config = {
     'weight_init': nn.init.xavier_uniform_,
     'bias_init': nn.init.zeros_,
     'combine_heads': False,
+    'vec_rej': True,
 }
+
+config['high_degree_sizes'] = [2*i+1 for i in range(1,config['degree_max']+1)]
 
 if 'dataset_cfg' in config.keys() and config['dataset_cfg']:
     config.update(config['dataset_cfg'].config)

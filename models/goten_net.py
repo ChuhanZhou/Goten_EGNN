@@ -193,11 +193,16 @@ class HTR(nn.Module):
         self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"],pre_norm=True)
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
-    def forward(self, X, t_ij, edge_index):
+    def forward(self, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
 
         eq_i = self.w_vq(torch.cat(X, dim=1))[n_i]
         ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j]
+
+        if cfg["vec_rej"]:
+            # vector rejection is not mentioned in the paper, but is a part of official implementation
+            eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
+            ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
 
         w_ij = (eq_i * ek_j).sum(dim=1)
         #w_ij = None
@@ -215,6 +220,11 @@ class HTR(nn.Module):
 
         dt_ij = self.mlp_w(w_ij) * self.mlp_t(t_ij)
         return dt_ij
+
+    @staticmethod
+    def vector_rejection(x,r_l_ij):
+        vec_proj = (x * r_l_ij.unsqueeze(2)).sum(dim=1, keepdim=True)
+        return x - vec_proj * r_l_ij.unsqueeze(2)
 
 class GATA(nn.Module):
     def __init__(self):
@@ -234,7 +244,7 @@ class GATA(nn.Module):
         r_0 = r_ij[0]
         h = self.ln(h)
 
-        dt_ij = self.htr(X, t_ij, edge_index)
+        dt_ij = self.htr(X, t_ij, r_ij[1:], edge_index)
         t_ij = t_ij + dt_ij
 
         sea_ij = self.sea(h, t_ij, edge_index)
@@ -275,6 +285,6 @@ class EQFF(nn.Module):
 
         h = h + m1
         X_ls = X_ls + m2.unsqueeze(1) * X_vu
-        X = list(torch.split(X_ls, [X_l.shape[1] for X_l in X], dim=1))
+        X = list(torch.split(X_ls, cfg["high_degree_sizes"], dim=1))
         return h, X
 
