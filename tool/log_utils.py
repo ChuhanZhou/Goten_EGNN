@@ -16,6 +16,7 @@ LogFileName = "{}_{}_{}_{}_{}_{}".format(
 
 def print_log(str_info):
     global StrHistory
+    str_info = "[{}] {}".format(datetime.datetime.now(),str_info)
     StrHistory += "{}\n".format(str_info)
     LogHistory.append(str_info)
 

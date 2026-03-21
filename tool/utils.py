@@ -8,11 +8,11 @@ import random
 
 def collate_fn(batch):
     batch_mass_center_dists = torch.zeros((0, 1))
-    batch_atoms_types = torch.zeros((0,1),dtype=torch.int64)
+    batch_atoms_types = torch.zeros((0,1),dtype=torch.int)
     batch_ij_vecs = torch.zeros((0,3))
 
     batch_prop = []
-    batch_edge_index = torch.zeros((2,0),dtype=torch.int64)
+    batch_edge_index = torch.zeros((2,0),dtype=torch.int)
     atoms_batch_index = []
     for i, (id, mass_center_dists, atoms_types, ij_pos_vecs, edge_index, prop) in enumerate(batch):
         edge_index = edge_index + batch_atoms_types.shape[0]
@@ -27,7 +27,7 @@ def collate_fn(batch):
 
         batch_prop.append([prop[cfg["predict_label"]]])
         batch_edge_index = torch.cat([batch_edge_index,edge_index], dim=1)
-        atoms_batch_index.append(torch.ones(len(atoms_types),dtype=torch.int64)*i)
+        atoms_batch_index.append(torch.ones(len(atoms_types),dtype=torch.int)*i)
     batch_prop = torch.tensor(batch_prop)
     atoms_batch_index = torch.cat(atoms_batch_index)
     return batch_mass_center_dists, batch_atoms_types, batch_ij_vecs, batch_edge_index, batch_prop, atoms_batch_index

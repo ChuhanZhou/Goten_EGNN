@@ -1,5 +1,3 @@
-from sympy.printing.pretty.pretty_symbology import atoms_table
-
 from configs.config import config as cfg
 from models.decoder import MLP,get_decoder
 
@@ -29,7 +27,7 @@ class GotenNet(nn.Module):
         self.gata_list = nn.ModuleList()
         self.eqff_list = nn.ModuleList()
         for i in range(cfg["layer_num"]):
-            self.gata_list.append(GATA())
+            self.gata_list.append(GATA(init_X=i==0))
             self.eqff_list.append(EQFF())
 
         self.decoder = get_decoder(out_label)
@@ -52,26 +50,51 @@ class GotenNet(nn.Module):
     def destandardize(self,v):
         return v * self.std + self.mean
 
-class RBFLayer(nn.Module):
+class GaussianRBFLayer(nn.Module):
     '''
-    Gaussian Radial Base Function
+    Learnable Gaussian Smearing Radial Base Function
     '''
     def __init__(self, out_features, start=0.0, end=cfg["cutoff_radius"]):
         super().__init__()
         self.centers = nn.Parameter(torch.linspace(start, end, out_features))
 
         delta = (end - start) / (out_features - 1)
-        gamma_init = 1.0 / (2 * delta ** 2)
-        self.gamma = nn.Parameter(torch.ones(self.centers.shape) * gamma_init)
+        gamma_init = 0.5 * delta ** -2
+        self.gammas = nn.Parameter(torch.ones(self.centers.shape) * gamma_init)
 
     def forward(self, x):
         centers = self.centers.unsqueeze(0)
         dist = (x - centers) ** 2
-        return torch.exp(-self.gamma*dist)
+        return torch.exp(-self.gammas*dist)
 
-def cos_cutoff(d,c=cfg["cutoff_radius"]):
-    mask = d<c
-    cutoff = (torch.cos(torch.pi*d/c)+1)/2
+class ExponentialRBFLayer(nn.Module):
+    '''
+    Exponential Gaussian Smearing Radial Base Function
+    '''
+    def __init__(self, out_features, start=None, end=1.0, cutoff=cfg["cutoff_radius"]):
+        super().__init__()
+        self.cutoff = cutoff
+        if start is None:
+            start = math.exp(-cutoff)
+
+        self.register_buffer("centers", torch.linspace(start, end, out_features))
+
+        delta = (end - start) / (out_features - 1)
+        gamma_init = 0.5 * delta ** -2
+        #gamma_init = (2 * delta) ** -2
+        gammas = torch.tensor(gamma_init, dtype=torch.float32)
+        self.register_buffer("gammas", gammas)
+        self.alpha = 5.0 / cutoff
+
+    def forward(self, x):
+        centers = self.centers.unsqueeze(0)
+        x_exp = torch.exp(self.alpha * (-x))
+        dist = (x_exp - centers) ** 2
+        return torch.exp(-self.gammas*dist) * cos_cutoff(x,self.cutoff)
+
+def cos_cutoff(r,r_cut=cfg["cutoff_radius"]):
+    mask = r<r_cut
+    cutoff = (torch.cos(torch.pi*r/r_cut)+1)/2
     return cutoff * mask
 
 class SelfAttentionLayer(nn.Module):
@@ -121,7 +144,8 @@ class SelfAttentionLayer(nn.Module):
 class Embedding(nn.Module):
     def __init__(self):
         super().__init__()
-        self.rbf = RBFLayer(cfg["rbf_num"])
+        #self.rbf = GaussianRBFLayer(cfg["rbf_num"])
+        self.rbf = ExponentialRBFLayer(cfg["rbf_num"])
 
         self.w_ndp = nn.Linear(cfg["rbf_num"],cfg["node_dim"], bias=True)
         self.a_nbr = nn.Embedding(len(cfg["atom_types"]),cfg["node_dim"])
@@ -136,12 +160,6 @@ class Embedding(nn.Module):
         )
 
         self.w_erp = nn.Linear(cfg["rbf_num"], cfg["edge_dim"], bias=True)
-
-        self.sea = SelfAttentionLayer(cfg["degree_max"] * cfg["node_dim"])
-        self.w_rs = nn.Linear(cfg["edge_dim"], cfg["degree_max"] * cfg["node_dim"], bias=True)
-        self.mlp_s = MLP(in_features=cfg["node_dim"],out_features=cfg["degree_max"] * cfg["node_dim"])
-
-        self.ln = nn.LayerNorm(cfg["node_dim"])
 
     def forward(self, z, p, edge_index):
         '''
@@ -168,16 +186,8 @@ class Embedding(nn.Module):
         # Edge Scalar Feature Initialization
         t_ij = (h[n_i]+h[n_j]) * self.w_erp(rbf_0)
 
-        # High-degree Steerable Feature Initialization
-        h = self.ln(h)
-        sea_ij = self.sea(h,t_ij,edge_index)
-        #o_ij = torch.split(sea_ij.unsqueeze(1) + self.w_rs(t_ij).unsqueeze(-1) * self.mlp_s(h[n_j]).unsqueeze(1) * cos_cutoff(r_0).unsqueeze(-1), cfg["node_dim"], dim=-1)
-        o_ij = torch.split(sea_ij + self.w_rs(t_ij) * self.mlp_s(h)[n_j] * cos_cutoff(r_0),cfg["node_dim"], dim=-1)
-        X = []
-        for i in range(len(o_ij)):
-            l = i + 1
-            X_l = scatter_sum(o_ij[i].unsqueeze(1) * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(z))
-            X.append(X_l)
+        # High-degree Steerable Feature will be initialized in the first GATA module
+        X = None
 
         return r_ij,h,t_ij,X
 
@@ -195,8 +205,9 @@ class HTR(nn.Module):
 
     def forward(self, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
+        X_ls =  torch.cat(X, dim=1)
 
-        eq_i = self.w_vq(torch.cat(X, dim=1))[n_i]
+        eq_i = self.w_vq(X_ls)[n_i]
         ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j]
 
         if cfg["vec_rej"]:
@@ -222,17 +233,23 @@ class HTR(nn.Module):
         return dt_ij
 
     @staticmethod
-    def vector_rejection(x,r_l_ij):
-        vec_proj = (x * r_l_ij.unsqueeze(2)).sum(dim=1, keepdim=True)
-        return x - vec_proj * r_l_ij.unsqueeze(2)
+    def vector_rejection(x,r_l_ij, eps=1e-8):
+        r_l_ij = r_l_ij.unsqueeze(2)
+        dot = (x * r_l_ij).sum(dim=1, keepdim=True)
+        denom = (r_l_ij * r_l_ij).sum(dim=1, keepdim=True) + eps
+        vec_proj = dot/denom
+        return x - vec_proj * r_l_ij
 
 class GATA(nn.Module):
-    def __init__(self):
+    def __init__(self,init_X=False):
         super().__init__()
 
         self.htr = HTR()
 
-        S = 1+2*cfg["degree_max"]
+        if init_X:
+            S = 1 + cfg["degree_max"] # initialize X in first GATA
+        else:
+            S = 1 + 2*cfg["degree_max"]
         self.sea = SelfAttentionLayer(S * cfg["node_dim"])
         self.w_rs = nn.Linear(cfg["edge_dim"], S * cfg["node_dim"], bias=True)
         self.mlp_s = MLP(in_features=cfg["node_dim"],out_features=S * cfg["node_dim"])
@@ -244,8 +261,9 @@ class GATA(nn.Module):
         r_0 = r_ij[0]
         h = self.ln(h)
 
-        dt_ij = self.htr(X, t_ij, r_ij[1:], edge_index)
-        t_ij = t_ij + dt_ij
+        if X is not None:
+            dt_ij = self.htr(X, t_ij, r_ij[1:], edge_index)
+            t_ij = t_ij + dt_ij
 
         sea_ij = self.sea(h, t_ij, edge_index)
 
@@ -257,11 +275,20 @@ class GATA(nn.Module):
         h = h + dh
 
         o_ij_d = o_ij[1:1+cfg["degree_max"]]
-        o_ij_t = o_ij[1+cfg["degree_max"]:1+cfg["degree_max"]*2]
-        for i in range(len(X)):
-           l = i + 1
-           dX_l = scatter_sum(o_ij_d[i] * r_ij[l].unsqueeze(-1) + o_ij_t[i] * X[i][n_j], n_i, dim=0, dim_size=len(h))
-           X[i] = X[i] + dX_l
+        o_ij_t = None
+        if X is not None:
+            o_ij_t = o_ij[1+cfg["degree_max"]:1+cfg["degree_max"]*2]
+        else:
+            X = []
+
+        for i in range(len(o_ij_d)):
+            l = i + 1
+            if o_ij_t is not None:
+                dX_l = scatter_sum(o_ij_d[i] * r_ij[l].unsqueeze(-1) + o_ij_t[i] * X[i][n_j], n_i, dim=0, dim_size=len(h))
+                X[i] = X[i] + dX_l
+            else:
+                dX_l = scatter_sum(o_ij_d[i] * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(h))
+                X.append(dX_l)
 
         return h, X, t_ij
 
@@ -271,7 +298,7 @@ class EQFF(nn.Module):
     '''
     def __init__(self):
         super().__init__()
-        self.epsilon = 1e-8
+        self.eps = 1e-8
 
         self.w_vu = nn.Linear(cfg["node_dim"],cfg["node_dim"],bias=False)
         self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"],pre_norm=True)
@@ -279,7 +306,7 @@ class EQFF(nn.Module):
     def forward(self, h, X):
         X_ls =  torch.cat(X, dim=1)
         X_vu = self.w_vu(X_ls)
-        X_vu_l2 = torch.sqrt(torch.sum(X_vu**2, dim=1) + self.epsilon)
+        X_vu_l2 = torch.sqrt(torch.sum(X_vu**2, dim=1) + self.eps)
 
         m1, m2 = torch.split(self.mlp_m(torch.cat([X_vu_l2, h], dim=1)), cfg["node_dim"],dim=-1)
 

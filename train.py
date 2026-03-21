@@ -43,7 +43,7 @@ if __name__ == '__main__':
     args.tqdm = args.tqdm.lower() == "true"
 
     if args.ckpt and not os.path.isfile(args.ckpt):
-        print_log("[{}] Can't find ckpt at [{}]".format(datetime.datetime.now(),args.ckpt))
+        print_log("Can't find ckpt at [{}]".format(args.ckpt))
         args.ckpt = None
 
     cfg['title'] = args.title
@@ -100,12 +100,12 @@ if __name__ == '__main__':
     prop_mean_std = get_mean_std([data[-1] for data in train_set])
     mean, std = prop_mean_std[cfg["predict_label"]]
 
-    print_log("[{}] [{}] device: {} | random_seed: {} | train: {} | val: {} | test: {}".format(datetime.datetime.now(), cfg["title"], device, seed, len(train_set), len(val_set), len(test_set)))
+    print_log("[{}] device: {} | random_seed: {} | train: {} | val: {} | test: {}".format(cfg["title"], device, seed, len(train_set), len(val_set), len(test_set)))
 
     model = GotenNet(mean=mean,std=std)
     if args.ckpt:
-        print_log("[{}] Continue training from [{}]".format(datetime.datetime.now(), args.ckpt))
-        model.load_state_dict(ckpt["model_ckpt"], strict=False)
+        print_log("Continue training from [{}]".format(args.ckpt))
+        model.load_state_dict(ckpt["model_ckpt"], strict=True)
 
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=cfg['weight_decay'],eps=1e-7)
@@ -119,6 +119,8 @@ if __name__ == '__main__':
 
     current_step = 0
     min_val_mae = math.inf
+    best_ckpt = None
+    not_best_step = 0
 
     #Preparing to continue training
     for epoch in range(len(val_mae_history)):
@@ -135,6 +137,9 @@ if __name__ == '__main__':
             scheduler_plateau.step(val_mae)
             if min_val_mae > val_mae:
                 min_val_mae = val_mae
+                not_best_step = 0
+            else:
+                not_best_step += 1
 
     start_epoch = len(val_mae_history)
     for epoch in range(start_epoch,epoch_num):
@@ -183,7 +188,7 @@ if __name__ == '__main__':
         if current_step > cfg["warmup"]:
             scheduler_plateau.step(val_mae)
 
-        epoch_result = "[{}] [epoch]:{} [lr]:{:.3e} [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), epoch, lr, avg_loss, val_loss, cfg["predict_label"], val_mae)
+        epoch_result = "[epoch]:{} [lr]:{:.3e} [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):{:.2f}".format(epoch, lr, avg_loss, val_loss, cfg["predict_label"], val_mae)
 
         if cfg["test_in_train"]:
             _, test_mae, _ = test(model, test_set, "test_set", args.tqdm)
@@ -206,8 +211,16 @@ if __name__ == '__main__':
         torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
         if min_val_mae > val_mae:
             min_val_mae = val_mae
+            best_ckpt = ckpt["model_ckpt"]
             torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
+            not_best_step = 0
+        else:
+            not_best_step += 1
 
+        if cfg["stop_patience"] is not None and not_best_step >= cfg["stop_patience"]:
+            break
+
+    model.load_state_dict(best_ckpt, strict=True)
     _, test_mae,_ = test(model, test_set,use_tqdm=args.tqdm)
-    test_result = "[{}] [test] [MAE]: {:.2f}".format(datetime.datetime.now(), test_mae)
+    test_result = "[test_best] [MAE]: {:.2f}".format(test_mae)
     print_log(test_result)

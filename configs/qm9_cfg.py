@@ -23,9 +23,11 @@ config = {
     'epochs': 1000,
     #'weight_decay': 0.01,
     #'dropout': 0.1,
-    'node_dim': 256, #d_ne
-    'edge_dim': 256, #d_ed
-    'edge_ref_dim': 256, #d_xpd
+    'stop_patience': 60, # early stop
+
+    'node_dim': 256, # d_ne
+    'edge_dim': 256, # d_ed
+    'edge_ref_dim': 256, # d_xpd
 
     'layer_num':6,
     'rbf_num':64,

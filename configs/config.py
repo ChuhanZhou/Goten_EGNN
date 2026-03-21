@@ -18,6 +18,7 @@ config = {
     'grad_clip': None,
     'weight_decay': 0.01,
     'dropout': 0.1, # for self-attention only
+    'stop_patience': None,
 
     'degree_max': 2,
     'high_degree_sizes':None,
@@ -28,7 +29,7 @@ config = {
     'weight_init': nn.init.xavier_uniform_,
     'bias_init': nn.init.zeros_,
     'combine_heads': False,
-    'vec_rej': True,
+    'vec_rej': False,
 }
 
 config['high_degree_sizes'] = [2*i+1 for i in range(1,config['degree_max']+1)]
