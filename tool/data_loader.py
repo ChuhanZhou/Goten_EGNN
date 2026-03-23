@@ -3,13 +3,14 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 class DatasetLoader(ABC):
-    def has_file(self,file_path):
+    @staticmethod
+    def has_file(file_path):
         if file_path == None:
             return False
         return os.path.isfile(file_path)
 
-    def load(self,folder_path,type_list,use_tqdm=True):
-        dataset = self.load_unsorted_data(folder_path,type_list,use_tqdm)
+    def load(self,folder_path,type_list,atom_mass_dict=None,use_tqdm=True):
+        dataset = self.load_unsorted_data(folder_path,type_list,atom_mass_dict,use_tqdm)
 
         # sort dataset to ensure the same sequence on different devices
         dataset.sort(key=lambda x: x[0])
@@ -17,7 +18,7 @@ class DatasetLoader(ABC):
         return dataset
 
     @abstractmethod
-    def load_unsorted_data(self, folder_path, type_list, use_tqdm=True):
+    def load_unsorted_data(self, folder_path, type_list, atom_mass_dict=None, use_tqdm=True):
         pass
 
 def unit_Ha2meV(ha):

@@ -3,6 +3,7 @@ import torch.nn as nn
 from configs import qm9_cfg as ds_cfg
 
 config = {
+    'atom_mass_path': "./dataset/PubChemElements_all.json", # download from https://pubchem.ncbi.nlm.nih.gov/ptable/atomic-mass/
     'log_path': "./log",
     'device': torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
     'seed': 1,

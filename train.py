@@ -3,7 +3,7 @@ import sys
 
 from configs.config import config as cfg
 from models.goten_net import GotenNet
-from tool.utils import collate_fn,get_mean_std
+from tool.utils import collate_fn,get_mean_std,load_atom_mass
 from test import test
 from tool.log_utils import print_log,LogFileName,load_log
 
@@ -62,7 +62,7 @@ if __name__ == '__main__':
     else:
         ckpt = None
 
-    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],use_tqdm=args.tqdm)
+    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],atom_mass_dict=load_atom_mass(),use_tqdm=args.tqdm)
 
     device = cfg['device']
     epoch_num = cfg['epochs']
@@ -153,9 +153,9 @@ if __name__ == '__main__':
         total_loss = 0
         avg_loss = None
         for i, data in enumerate(train_dataloader):
-            [mass_center_dists, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
+            [mass_center_vecs, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
 
-            out = model(atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
+            out = model(mass_center_vecs.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
 
             std_prop_value = model.standardize(prop_value.to(device))
             loss = cfg["loss_func"](out,std_prop_value)
@@ -222,5 +222,5 @@ if __name__ == '__main__':
 
     model.load_state_dict(best_ckpt, strict=True)
     _, test_mae,_ = test(model, test_set,use_tqdm=args.tqdm)
-    test_result = "[test_best] [MAE]: {:.2f}".format(test_mae)
+    test_result = "[test_best_validation] [MAE]: {:.2f}".format(test_mae)
     print_log(test_result)

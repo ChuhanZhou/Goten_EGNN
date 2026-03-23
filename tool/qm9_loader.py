@@ -15,7 +15,7 @@ class Loader(DatasetLoader):
         prop_dict = {
             #"tag":prop_list[0],
             #"index":prop_list[1],
-            "mu": unit_u2mu(float(prop_list[5])), # dipole moment,
+            "mu": unit_u2mu(float(prop_list[5])), # dipole moment
             "alpha": unit_u2mu(float(prop_list[6])), # isotropic polarizability
             "homo": unit_Ha2meV(float(prop_list[7])),  # energy of homo
             "lumo": unit_Ha2meV(float(prop_list[8])),  # energy of lumo
@@ -36,7 +36,7 @@ class Loader(DatasetLoader):
             f_list.append(float(s.replace("*^","e")))
         return f_list
 
-    def load_unsorted_data(self,folder_path,type_list,use_tqdm=True):
+    def load_unsorted_data(self,folder_path,type_list,atom_mass_dict=None,use_tqdm=True):
         dataset = []
         if use_tqdm:
             progress_bar = tqdm(desc="[{}] Loading data from {}".format(datetime.datetime.now(),folder_path), total=len(os.listdir(folder_path)))
@@ -55,7 +55,7 @@ class Loader(DatasetLoader):
                 atom_set.add(line.split()[0])
                 atoms_type.append(type_list.index(line.split()[0]))
                 atoms_xyz.append(self.xyz_str2float(line.split()[1:-1]))
-            atoms_type = torch.tensor(atoms_type,dtype=torch.int64).unsqueeze(1)
+
             atoms_xyz = np.array(atoms_xyz)
 
             prop = self.prop_str2dict(lines[1])
@@ -75,12 +75,18 @@ class Loader(DatasetLoader):
                     edge_index[1].append(j)
                     ij_pos_vecs.append(atoms_xyz[j,:]-atoms_xyz[i,:])
 
-            edge_index = torch.tensor(edge_index, dtype=torch.int64)
+            mass_center_vecs = None
+            if atom_mass_dict is not None:
+                masses = np.array([atom_mass_dict[type_list[i]] for i in atoms_type]).reshape(-1, 1)
+                center_of_mass = (masses * atoms_xyz).sum(axis=0) / masses.sum()
+                mass_center_vecs = atoms_xyz-center_of_mass
+                mass_center_vecs = torch.tensor(mass_center_vecs,dtype=torch.float32)
+
+            atoms_type = torch.tensor(atoms_type,dtype=torch.int).unsqueeze(1)
+            edge_index = torch.tensor(edge_index, dtype=torch.int)
             ij_pos_vecs = torch.tensor(np.array(ij_pos_vecs),dtype=torch.float32)
 
-            mass_center_dists = None
-
-            dataset.append([name,mass_center_dists,atoms_type,ij_pos_vecs,edge_index,prop])
+            dataset.append([name, mass_center_vecs, atoms_type, ij_pos_vecs, edge_index, prop])
         if use_tqdm:
             progress_bar.close()
         print("Atom types: {}".format(atom_set))

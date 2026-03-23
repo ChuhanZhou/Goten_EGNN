@@ -1,12 +1,12 @@
 from configs.config import config as cfg
 from models.goten_net import GotenNet
-from tool.utils import collate_fn,unit_Ha2meV,get_std_mat
+from tool.utils import collate_fn,load_atom_mass
 
 from tqdm import tqdm
 import datetime
 import torch
 import time
-from torch.utils.data import Subset
+from torch.utils.data import random_split, Subset
 import numpy as np
 import random
 import re
@@ -31,9 +31,9 @@ def test(model,dataset,title="testing",use_tqdm=True):
     target_list = []
     with torch.inference_mode():
         for i, data in enumerate(test_dataloader):
-            [mass_center_dists, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
+            [mass_center_vecs, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
 
-            out = model(atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
+            out = model(mass_center_vecs.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
 
             std_prop_value = model.standardize(prop_value.to(device))
             loss = cfg["loss_func"](out, std_prop_value)
@@ -58,28 +58,3 @@ def test(model,dataset,title="testing",use_tqdm=True):
     out_labels = np.concatenate([outs,targets],axis=1)
     return avg_loss,avg_mae,out_labels
 
-if __name__ == '__main__':
-    ckpt_path = "./ckpt/QM9_B_t107109_s11_homo.pth"
-    ckpt = torch.load(ckpt_path, weights_only=False)
-    cfg['predict_label'] = ckpt["label"]
-
-    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'])
-    train_set = Subset(dataset, ckpt["datasets"]["train"])
-    val_set = Subset(dataset, ckpt["datasets"]["valid"])
-    test_set = Subset(dataset, ckpt["datasets"]["test"])
-
-    model = GotenNet()
-    model.load_state_dict(ckpt["model_ckpt"], strict=True)
-
-    train_loss, train_mae, _ = test(model, train_set, title="train_set")
-    time.sleep(0.01)
-    print("[{}] [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), cfg['predict_label'], train_mae))
-
-    val_loss, val_mae, _ = test(model, val_set, title="val_set")
-    time.sleep(0.01)
-    print("[{}] [MAE]: ({}):{:.2f}".format(datetime.datetime.now(),cfg['predict_label'], val_mae))
-
-    test_loss, test_mae, _ = test(model, test_set, title="test_set")
-
-    test_result = "[{}] [test_loss]:{:.3e} [MAE]: ({}):{:.2f}".format(datetime.datetime.now(), test_loss, cfg['predict_label'], test_mae)
-    print(test_result)

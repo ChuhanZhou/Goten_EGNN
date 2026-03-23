@@ -1,26 +1,25 @@
-from torch_scatter.testing import tensor
-
 from configs.config import config as cfg
 
 import torch
 import numpy as np
 import random
+import json
 
 def collate_fn(batch):
-    batch_mass_center_dists = torch.zeros((0, 1))
+    batch_mass_center_vecs = torch.zeros((0, 3))
     batch_atoms_types = torch.zeros((0,1),dtype=torch.int)
     batch_ij_vecs = torch.zeros((0,3))
 
     batch_prop = []
     batch_edge_index = torch.zeros((2,0),dtype=torch.int)
     atoms_batch_index = []
-    for i, (id, mass_center_dists, atoms_types, ij_pos_vecs, edge_index, prop) in enumerate(batch):
+    for i, (id, mass_center_vecs, atoms_types, ij_pos_vecs, edge_index, prop) in enumerate(batch):
         edge_index = edge_index + batch_atoms_types.shape[0]
 
-        if batch_mass_center_dists is not None and mass_center_dists is not None:
-            batch_mass_center_dists = torch.cat([batch_mass_center_dists,mass_center_dists], dim=0)
+        if batch_mass_center_vecs is not None and mass_center_vecs is not None:
+            batch_mass_center_vecs = torch.cat([batch_mass_center_vecs,mass_center_vecs], dim=0)
         else:
-            batch_mass_center_dists = None
+            batch_mass_center_vecs = None
 
         batch_atoms_types = torch.cat((batch_atoms_types,atoms_types), dim=0)
         batch_ij_vecs = torch.cat((batch_ij_vecs,ij_pos_vecs), dim=0)
@@ -30,7 +29,7 @@ def collate_fn(batch):
         atoms_batch_index.append(torch.ones(len(atoms_types),dtype=torch.int)*i)
     batch_prop = torch.tensor(batch_prop)
     atoms_batch_index = torch.cat(atoms_batch_index)
-    return batch_mass_center_dists, batch_atoms_types, batch_ij_vecs, batch_edge_index, batch_prop, atoms_batch_index
+    return batch_mass_center_vecs, batch_atoms_types, batch_ij_vecs, batch_edge_index.long(), batch_prop, atoms_batch_index
 
 def get_mean_std(prop_dict_list,prop_labels = None):
     prop_values = []
@@ -62,4 +61,23 @@ def get_std_mat(mean_std_dict,prop_labels = None):
 
 def unit_Ha2meV(ha):
     return ha * 27211.386245981
+
+def load_atom_mass(file_path=None):
+    if file_path == None:
+        file_path = cfg["atom_mass_path"]
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    columns = data['Table']['Columns']['Column']
+    rows = data['Table']['Row']
+
+    atom_mass_dict = {}
+
+    for row in rows:
+        values = row['Cell']
+        value_dict = dict(zip(columns, values))
+        atom_mass_dict[value_dict['Symbol']] = float(value_dict['AtomicMass'])
+
+    return atom_mass_dict
 

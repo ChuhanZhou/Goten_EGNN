@@ -33,14 +33,14 @@ class GotenNet(nn.Module):
         self.decoder = get_decoder(out_label)
         self.apply(init_parameters)
 
-    def forward(self, x_n, x_e, edge_index,batch_index):
+    def forward(self, mass_center_vec, x_n, x_e, edge_index,batch_index):
         r_ij,h,t_ij,X = self.embedding(x_n,x_e,edge_index)
 
         for i in range(cfg["layer_num"]):
             h, X, t_ij = self.gata_list[i](h, X, t_ij, r_ij, edge_index)
             h, X = self.eqff_list[i](h, X)
 
-        out = self.decoder(h,X,batch_index)
+        out = self.decoder(mass_center_vec, h,X[0],batch_index)
 
         return out
 
@@ -236,8 +236,8 @@ class HTR(nn.Module):
     def vector_rejection(x,r_l_ij, eps=1e-8):
         r_l_ij = r_l_ij.unsqueeze(2)
         dot = (x * r_l_ij).sum(dim=1, keepdim=True)
-        denom = (r_l_ij * r_l_ij).sum(dim=1, keepdim=True) + eps
-        vec_proj = dot/denom
+        #denom = (r_l_ij * r_l_ij).sum(dim=1, keepdim=True) + eps
+        vec_proj = dot#/denom
         return x - vec_proj * r_l_ij
 
 class GATA(nn.Module):
