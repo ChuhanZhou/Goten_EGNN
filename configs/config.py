@@ -12,7 +12,7 @@ config = {
     'test_size':0.1,
     'test_in_train':True,
 
-    'atom_types': ['H', 'N', 'F', 'C', 'O'],
+    'atom_types': ['H', 'C', 'N', 'O', 'F'],
 
     'dataset_cfg':ds_cfg,
 

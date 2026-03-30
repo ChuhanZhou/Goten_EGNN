@@ -1,6 +1,6 @@
 from configs.config import config as cfg
 from models.goten_net import GotenNet
-from tool.utils import collate_fn,load_atom_mass
+from tool.utils import collate_fn,load_atom_mass,get_mean_std
 
 from tqdm import tqdm
 import datetime
@@ -31,10 +31,11 @@ def test(model,dataset,title="testing",use_tqdm=True):
     target_list = []
     with torch.inference_mode():
         for i, data in enumerate(test_dataloader):
-            [mass_center_vecs, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
+            [atoms_pos, mass_center, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
 
-            out = model(mass_center_vecs.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
+            out = model(atoms_pos.to(device), mass_center.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
 
+            #atom_norm = scatter_sum(torch.ones([len(atoms_batch_index), 1], device=out.device),atoms_batch_index.to(device), dim=0)
             std_prop_value = model.standardize(prop_value.to(device))
             loss = cfg["loss_func"](out, std_prop_value)
 
@@ -57,4 +58,3 @@ def test(model,dataset,title="testing",use_tqdm=True):
 
     out_labels = np.concatenate([outs,targets],axis=1)
     return avg_loss,avg_mae,out_labels
-

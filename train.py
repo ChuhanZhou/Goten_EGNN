@@ -28,7 +28,7 @@ def warmup_lambda(current_step):
 def get_epoch_dataloader(base_seed , epoch, dataset, batch_size, collate_fn):
     g = torch.Generator()
     g.manual_seed(base_seed + epoch)
-    return torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, generator=g, shuffle=True, collate_fn=collate_fn)
+    return torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, generator=g, shuffle=True, collate_fn=collate_fn,drop_last=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Training model")
@@ -42,15 +42,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
 
-    if args.ckpt and not os.path.isfile(args.ckpt):
-        print_log("Can't find ckpt at [{}]".format(args.ckpt))
-        args.ckpt = None
-
     cfg['title'] = args.title
     cfg['seed'] = args.seed
     cfg['predict_label'] = args.label
     cfg['epochs'] = args.epoch
     cfg['batch_size'] = args.batch
+
+    if args.ckpt and not os.path.isfile(args.ckpt):
+        print_log("Can't find ckpt at [{}]".format(args.ckpt))
+        args.ckpt = None
 
     val_mae_history = []
     if args.ckpt:
@@ -62,7 +62,7 @@ if __name__ == '__main__':
     else:
         ckpt = None
 
-    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],atom_mass_dict=load_atom_mass(),use_tqdm=args.tqdm)
+    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],cutoff=cfg["cutoff_radius"],atom_mass_dict=load_atom_mass(),use_tqdm=args.tqdm)
 
     device = cfg['device']
     epoch_num = cfg['epochs']
@@ -102,7 +102,8 @@ if __name__ == '__main__':
 
     print_log("[{}] device: {} | random_seed: {} | train: {} | val: {} | test: {}".format(cfg["title"], device, seed, len(train_set), len(val_set), len(test_set)))
 
-    model = GotenNet(mean=mean,std=std)
+    #model = GotenNet()
+    model = GotenNet(mean=mean, std=std)
     if args.ckpt:
         print_log("Continue training from [{}]".format(args.ckpt))
         model.load_state_dict(ckpt["model_ckpt"], strict=True)
@@ -115,7 +116,10 @@ if __name__ == '__main__':
         mode='min',
         factor=cfg["lr_decay"],
         patience=cfg["lr_patience"],
-        min_lr=1e-6)
+        threshold=1e-6,
+        threshold_mode = 'rel',
+        cooldown=2,
+        min_lr=1e-7)
 
     current_step = 0
     min_val_mae = math.inf
@@ -153,9 +157,9 @@ if __name__ == '__main__':
         total_loss = 0
         avg_loss = None
         for i, data in enumerate(train_dataloader):
-            [mass_center_vecs, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
+            [atoms_pos, mass_center, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
 
-            out = model(mass_center_vecs.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
+            out = model(atoms_pos.to(device), mass_center.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
 
             std_prop_value = model.standardize(prop_value.to(device))
             loss = cfg["loss_func"](out,std_prop_value)
@@ -211,7 +215,6 @@ if __name__ == '__main__':
         torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
         if min_val_mae > val_mae:
             min_val_mae = val_mae
-            best_ckpt = ckpt["model_ckpt"]
             torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
             not_best_step = 0
         else:
@@ -220,6 +223,8 @@ if __name__ == '__main__':
         if cfg["stop_patience"] is not None and not_best_step >= cfg["stop_patience"]:
             break
 
+    best_ckpt_path = "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"])
+    best_ckpt = torch.load(best_ckpt_path, weights_only=False)["model_ckpt"]
     model.load_state_dict(best_ckpt, strict=True)
     _, test_mae,_ = test(model, test_set,use_tqdm=args.tqdm)
     test_result = "[test_best_validation] [MAE]: {:.2f}".format(test_mae)
