@@ -67,10 +67,10 @@ class ShiftedSoftplus(nn.Module):
     def forward(self,x):
         return self.softplus(x) - self.shift
 
-def get_decoder(label):
+def get_decoder(label,standardize,destandardize):
     match (label):
         case "mu": # dipole moment
-            return DipoleMomentDecoder(cfg["node_dim"])
+            return DipoleMomentDecoder(cfg["node_dim"],standardize=standardize,destandardize=destandardize)
         case "alpha": # isotropic polarizability
             return ExtensiveScalerDecoder(cfg["node_dim"])
         case "homo":
@@ -153,7 +153,7 @@ class ScalerDecoder(GraphDecoder):
         return out
 
 class DipoleMomentDecoder(GraphDecoder):
-    def __init__(self,in_features,hidden_dim=None,out_features=1):
+    def __init__(self,in_features,hidden_dim=None,out_features=1,standardize=None,destandardize=None):
         super().__init__()
         if hidden_dim is None:
             hidden_dim = in_features // 2
@@ -163,6 +163,9 @@ class DipoleMomentDecoder(GraphDecoder):
         self.gate_1 = GateV2(in_features=hidden_dim, out_features=1)
         self.out_features = out_features
 
+        self.standardize = standardize
+        self.destandardize = destandardize
+
     def forward(self, pos, mass_center, scaler, vector, batch_index):
         mass_center_vec = pos - mass_center[batch_index]
 
@@ -171,11 +174,17 @@ class DipoleMomentDecoder(GraphDecoder):
         q_i, mu_i = self.gate_1(q_i, mu_i)
         mu_i = mu_i.squeeze()
 
+        if self.destandardize is not None:
+            q_i = self.destandardize(q_i)
+
         node_mu = mu_i + q_i * mass_center_vec
         graph_mu = scatter(node_mu, batch_index, dim=0, reduce="sum")
         out = graph_mu
         if self.out_features == 1:
             out = torch.norm(out, dim=-1, keepdim=True)
+
+        if self.standardize is not None:
+            out = self.standardize(out)
         return out
 
 class IsotropicPolarizabilityDecoder(GraphDecoder):

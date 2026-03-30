@@ -30,7 +30,7 @@ class GotenNet(nn.Module):
             self.gata_list.append(GATA(init_X=i==0))
             self.eqff_list.append(EQFF())
 
-        self.decoder = get_decoder(out_label)
+        self.decoder = get_decoder(out_label,self.standardize,self.destandardize)
         self.apply(init_parameters)
 
     def forward(self, atoms_pos, mass_center, x_n, x_e, edge_index,batch_index):
@@ -199,7 +199,10 @@ class HTR(nn.Module):
 
         # pre-norm is not in the paper, but network has high possibility of exploding (numerical overflow) after depth 4
         #self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"],pre_norm=True)
-        self.mlp_w = nn.Linear(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"])
+        self.mlp_w = nn.Sequential(
+            nn.LayerNorm(cfg["edge_ref_dim"]),
+            nn.Linear(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"]),
+        )
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
         self.act_fn = cfg["activation"]
