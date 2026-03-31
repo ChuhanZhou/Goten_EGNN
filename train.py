@@ -118,7 +118,7 @@ if __name__ == '__main__':
         patience=cfg["lr_patience"],
         threshold=1e-6,
         threshold_mode = 'rel',
-        cooldown=2,
+        #cooldown=2,
         min_lr=1e-7)
 
     current_step = 0

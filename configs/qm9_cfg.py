@@ -16,14 +16,14 @@ config = {
     'warmup': 10000,
     'lr_max': 1e-4,
     'lr_decay': 0.8,
-    'lr_patience': 5,
+    'lr_patience': 15,
     'loss_func':nn.MSELoss(),
     'grad_clip': 10.0,
     'batch_size': 32,
     'epochs': 1000,
     #'weight_decay': 0.01,
     #'dropout': 0.1,
-    'stop_patience': 100, # early stop
+    'stop_patience': 150, # early stop
 
     'node_dim': 256, # d_ne
     'edge_dim': 256, # d_ed

@@ -80,7 +80,7 @@ def get_decoder(label,standardize,destandardize):
         case "gap": # gap(lumo-homo)
             raise NotImplementedError("Don't know how to decode: {}".format(label))
         case "r2": # electronic spatial extent
-            return ElectronicSpatialExtentDecoder(cfg["node_dim"])
+            return ElectronicSpatialExtentDecoder(cfg["node_dim"],standardize=standardize,destandardize=destandardize)
         case "zpve": # zero point vibrational energy
             return IntensiveScalerDecoder(cfg["node_dim"])
         case "u0": # internal energy at 0K
@@ -209,17 +209,26 @@ class IsotropicPolarizabilityDecoder(GraphDecoder):
         return out
 
 class ElectronicSpatialExtentDecoder(GraphDecoder):
-    def __init__(self,in_features,hidden_dim=None):
+    def __init__(self,in_features,hidden_dim=None,standardize=None,destandardize=None):
         super().__init__()
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim,pre_norm=True)
+        self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim)
+
+        self.standardize = standardize
+        self.destandardize = destandardize
 
     def forward(self, pos, mass_center, scaler, vector, batch_index):
         mass_center_vec = pos - mass_center[batch_index]
         q_i = self.decoder_q(scaler)
-        r2 = (torch.norm(mass_center_vec) ** 2).sum(dim=-1, keepdim=True)
-        out = scatter(q_i * r2, batch_index, dim=0, reduce="sum")
+
+        r2_i = torch.norm(mass_center_vec,dim=1,keepdim=True) ** 2
+
+        out = scatter(q_i * r2_i, batch_index, dim=0, reduce="sum")
+
+        if self.standardize is not None:
+           out = self.standardize(out)
+
         return out
 
