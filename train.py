@@ -33,22 +33,27 @@ def get_epoch_dataloader(base_seed , epoch, dataset, batch_size, collate_fn):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Training model")
     parser.add_argument('--ckpt', help="ckpt path for continue training", type=str, default=None)
-    parser.add_argument('--title', help="model title", type=str, default=cfg['title'])
-    parser.add_argument('--seed', help="random seed", type=int, default=cfg['seed'])
-    parser.add_argument('--label', help="target label", type=str, default=cfg['predict_label'])
-    parser.add_argument('--epoch', help="maximum epoch number", type=int, default=cfg['epochs'])
-    parser.add_argument('--batch', help="batch size", type=int, default=cfg['batch_size'])
+    parser.add_argument('--title', help="model title", type=str, default=None)
+    parser.add_argument('--seed', help="random seed", type=int, default=None)
+    parser.add_argument('--label', help="target label", type=str, default=None)
+    parser.add_argument('--epoch', help="maximum epoch number", type=int, default=None)
+    parser.add_argument('--batch', help="batch size", type=int, default=None)
     parser.add_argument('--tqdm', help="print progress bar", type=str, default="True")
     parser.add_argument('--set', help="dataset type", type=str, default="qm9")
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
 
-    cfg['title'] = args.title
-    cfg['seed'] = args.seed
-    cfg['predict_label'] = args.label
-    cfg['epochs'] = args.epoch
-    cfg['batch_size'] = args.batch
     update_dataset_cfg(args.set)
+    if args.title is not None:
+        cfg['title'] = args.title
+    if args.seed is not None:
+        cfg['seed'] = args.seed
+    if args.epoch is not None:
+        cfg['epochs'] = args.epoch
+    if args.batch is not None:
+        cfg['batch_size'] = args.batch
+    if args.label is not None:
+        cfg['predict_label'] = args.label
 
     if args.ckpt and not os.path.isfile(args.ckpt):
         print_log("Can't find ckpt at [{}]".format(args.ckpt))
