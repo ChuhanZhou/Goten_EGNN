@@ -43,14 +43,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
 
-    #args.ckpt = "./ckpt/QM9_B_SmoothL1Loss_t107109_s1_alpha.pth"
-
+    update_dataset_cfg(args.set)
     cfg['title'] = args.title
     cfg['seed'] = args.seed
     cfg['predict_label'] = args.label
     cfg['epochs'] = args.epoch
     cfg['batch_size'] = args.batch
-    update_dataset_cfg(args.set)
 
     if args.ckpt and not os.path.isfile(args.ckpt):
         print_log("Can't find ckpt at [{}]".format(args.ckpt))
@@ -58,12 +56,12 @@ if __name__ == '__main__':
 
     val_mae_history = []
     if args.ckpt:
+        update_dataset_cfg(cfg["dataset"]["title"])
         ckpt = torch.load(args.ckpt, weights_only=False)
         cfg['seed'] = ckpt['seed']
         cfg["predict_label"] = ckpt["label"]
         val_mae_history += ckpt["val_history"]
         load_log(ckpt['log'])
-        update_dataset_cfg(cfg["dataset"]["title"])
     else:
         ckpt = None
 
