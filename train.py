@@ -1,7 +1,7 @@
 import math
 import sys
 
-from configs.config import config as cfg
+from configs.config import config as cfg,update_dataset_cfg
 from models.goten_net import GotenNet
 from tool.utils import collate_fn,get_mean_std,load_atom_mass
 from test import test
@@ -39,14 +39,18 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', help="maximum epoch number", type=int, default=cfg['epochs'])
     parser.add_argument('--batch', help="batch size", type=int, default=cfg['batch_size'])
     parser.add_argument('--tqdm', help="print progress bar", type=str, default="True")
+    parser.add_argument('--set', help="dataset type", type=str, default="qm9")
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
+
+    #args.ckpt = "./ckpt/QM9_B_SmoothL1Loss_t107109_s1_alpha.pth"
 
     cfg['title'] = args.title
     cfg['seed'] = args.seed
     cfg['predict_label'] = args.label
     cfg['epochs'] = args.epoch
     cfg['batch_size'] = args.batch
+    update_dataset_cfg(args.set)
 
     if args.ckpt and not os.path.isfile(args.ckpt):
         print_log("Can't find ckpt at [{}]".format(args.ckpt))
@@ -59,6 +63,7 @@ if __name__ == '__main__':
         cfg["predict_label"] = ckpt["label"]
         val_mae_history += ckpt["val_history"]
         load_log(ckpt['log'])
+        update_dataset_cfg(cfg["dataset"]["title"])
     else:
         ckpt = None
 
@@ -83,9 +88,9 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = False
 
     if args.ckpt:
-        train_set = Subset(dataset, ckpt["datasets"]["train"])
-        val_set = Subset(dataset, ckpt["datasets"]["valid"])
-        test_set = Subset(dataset, ckpt["datasets"]["test"])
+        train_set = Subset(dataset, ckpt["dataset"]["train"])
+        val_set = Subset(dataset, ckpt["dataset"]["valid"])
+        test_set = Subset(dataset, ckpt["dataset"]["test"])
     else:
         if cfg["train_size"]>=1 and cfg["val_size"]>=1 and cfg["test_size"]>=1:
             data_drop_len = len(dataset) - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
@@ -118,7 +123,7 @@ if __name__ == '__main__':
         patience=cfg["lr_patience"],
         threshold=1e-6,
         threshold_mode = 'rel',
-        #cooldown=2,
+        cooldown=2,
         min_lr=1e-7)
 
     current_step = 0
@@ -204,7 +209,8 @@ if __name__ == '__main__':
             "model_ckpt":model.state_dict(),
             "seed": seed,
             "label": cfg["predict_label"],
-            "datasets": {
+            "dataset": {
+                "title": cfg["dataset_label"],
                 "train": train_set.indices,
                 "valid": val_set.indices,
                 "test": test_set.indices,

@@ -70,7 +70,9 @@ class ShiftedSoftplus(nn.Module):
 def get_decoder(label,standardize,destandardize):
     match (label):
         case "mu": # dipole moment
-            return DipoleMomentDecoder(cfg["node_dim"],standardize=standardize,destandardize=destandardize)
+            return DipoleMomentDecoder(cfg["node_dim"],out_features=1,standardize=standardize,destandardize=destandardize)
+        case "mu_3d":  # dipole moment
+            return DipoleMomentDecoder(cfg["node_dim"],out_features=3,standardize=standardize,destandardize=destandardize)
         case "alpha": # isotropic polarizability
             return ExtensiveScalerDecoder(cfg["node_dim"])
         case "homo":
@@ -110,7 +112,7 @@ class IntensiveScalerDecoder(GraphDecoder):
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim,act_fn=ShiftedSoftplus())
+        self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim)
 
     def forward(self, pos, mass_center, scaler, vector, batch_index):
         graph_scaler = scatter(scaler, batch_index, dim=0, reduce="mean")
@@ -123,7 +125,7 @@ class ExtensiveScalerDecoder(GraphDecoder):
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim,act_fn=ShiftedSoftplus())
+        self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim)
 
     def forward(self, pos, mass_center, scaler, vector, batch_index):
         node_scaler = self.decoder(scaler)
@@ -214,7 +216,7 @@ class ElectronicSpatialExtentDecoder(GraphDecoder):
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim)
+        self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim,act_fn=ShiftedSoftplus())
 
         self.standardize = standardize
         self.destandardize = destandardize

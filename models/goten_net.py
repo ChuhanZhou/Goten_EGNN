@@ -151,12 +151,12 @@ class SelfAttentionLayer(nn.Module):
         self.head_num = cfg["attention_heads"]
         assert out_features % self.head_num == 0
 
-        self.w_q = nn.Linear(cfg["node_dim"], cfg["node_dim"], bias=True)
-        self.w_k = nn.Linear(cfg["node_dim"], cfg["node_dim"], bias=True)
+        self.w_q = nn.Linear(cfg["node_dim"], cfg["node_dim"])
+        self.w_k = nn.Linear(cfg["node_dim"], cfg["node_dim"])
 
         self.mlp_v = MLP(in_features=cfg["node_dim"],out_features=out_features)
 
-        self.w_re = nn.Linear(cfg["edge_dim"],cfg["node_dim"],bias=True)
+        self.w_re = nn.Linear(cfg["edge_dim"],cfg["node_dim"])
 
         self.act_fn = cfg["activation"]
         self.dropout = nn.Dropout(cfg["dropout"])
@@ -176,10 +176,10 @@ class SelfAttentionLayer(nn.Module):
         a_i = softmax(a_ij, n_i, dim=0)
 
         # not in the paper but in the author's code
-        norm = 1.0 / math.sqrt(v_j.shape[2])
-        #n_i_edges = scatter(torch.ones([len(n_i),1,1],device=n_i.device),n_i,dim=0,reduce="sum")
-        #norm = torch.sqrt(n_i_edges) / math.sqrt(v_j.shape[2])
-        #norm = norm[n_i]
+        #norm = 1.0 / math.sqrt(v_j.shape[2])
+        n_i_edges = scatter(torch.ones([len(n_i),1,1],device=n_i.device),n_i,dim=0,reduce="sum")
+        norm = torch.sqrt(n_i_edges) / math.sqrt(v_j.shape[2])
+        norm = norm[n_i]
 
         a_i = self.dropout(a_i * norm)
         sea_ij = a_i * v_j
@@ -198,8 +198,8 @@ class HTR(nn.Module):
         self.w_vk = nn.ModuleList([nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=False) for _ in range(cfg["degree_max"])])
 
         # pre-norm is not in the paper, but network has high possibility of exploding (numerical overflow) after depth 4
-        #self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"],pre_norm=True)
-        self.mlp_w = nn.Linear(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"]) if cfg["edge_ref_dim"] != cfg["edge_dim"] else nn.Identity()
+        self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"])
+        #self.mlp_w = nn.Linear(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"]) if cfg["edge_ref_dim"] != cfg["edge_dim"] else nn.Identity()
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
         self.act_fn = cfg["activation"]
@@ -211,24 +211,15 @@ class HTR(nn.Module):
         eq_i = self.w_vq(X_ls)[n_i]
         ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j]
 
-        if cfg["vec_rej"]:
-            # vector rejection is not mentioned in the paper, but is a part of official implementation
-            eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
-            ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
+        # vector rejection is not mentioned in the paper, but is a part of official implementation
+        eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
+        ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
+
+        #r_ij_ls = torch.cat(r_ij, dim=1)
+        #eq_i = self.vector_rejection(eq_i, r_ij_ls)
+        #ek_j = self.vector_rejection(ek_j, -r_ij_ls)
 
         w_ij = (eq_i * ek_j).sum(dim=1)
-        #w_ij = None
-        #l_dim_start = 0
-        #for i in range(len(X)):
-        #    l_dim = X[i].shape[1]
-        #    eq_i_l = eq_i[:,l_dim_start:l_dim_start+l_dim,:]
-        #    ek_j_l = ek_j[:,l_dim_start:l_dim_start+l_dim,:]
-        #    w_ij_l = (eq_i_l * ek_j_l).sum(dim=1)
-        #    if w_ij is None:
-        #        w_ij = w_ij_l
-        #    else:
-        #        w_ij = w_ij + w_ij_l
-        #    l_dim_start += l_dim
 
         dt_ij = self.mlp_w(w_ij) * self.act_fn(self.mlp_t(t_ij))
         return dt_ij
@@ -252,15 +243,15 @@ class GATA(nn.Module):
         else:
             S = 1 + 2*cfg["degree_max"]
         self.sea = SelfAttentionLayer(S * cfg["node_dim"])
-        self.w_rs = nn.Linear(cfg["edge_dim"], S * cfg["node_dim"], bias=True)
+        self.w_rs = nn.Linear(cfg["edge_dim"], S * cfg["node_dim"])
         self.mlp_s = MLP(in_features=cfg["node_dim"],out_features=S * cfg["node_dim"])
 
-        self.ln = nn.LayerNorm(cfg["node_dim"])
+        #self.ln = nn.LayerNorm(cfg["node_dim"])
 
     def forward(self, h, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
         r_0 = r_ij[0]
-        h = self.ln(h)
+        #h = self.ln(h)
 
         if X is not None:
             dt_ij = self.htr(X, t_ij, r_ij[1:], edge_index)
@@ -302,7 +293,7 @@ class EQFF(nn.Module):
         self.eps = 1e-8
 
         self.w_vu = nn.Linear(cfg["node_dim"],cfg["node_dim"],bias=False)
-        self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=cfg["node_dim"],pre_norm=True)
+        self.mlp_m = MLP(in_features=2 * cfg["node_dim"],out_features=2 * cfg["node_dim"],hidden_dim=2 * cfg["node_dim"],pre_norm=False)
 
     def forward(self, h, X):
         X_ls =  torch.cat(X, dim=1)

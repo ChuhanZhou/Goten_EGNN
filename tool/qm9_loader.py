@@ -5,6 +5,7 @@ from tqdm import tqdm
 import datetime
 import numpy as np
 import torch
+from torch_cluster import radius_graph
 
 # Atom reference energy
 # ['H', 'C', 'N', 'O', 'F'] unit: eV
@@ -77,27 +78,13 @@ class Loader(DatasetLoader):
                 atoms_type.append(type_list.index(line.split()[0]))
                 atoms_xyz.append(self.xyz_str2float(line.split()[1:-1]))
 
-            atoms_xyz = np.array(atoms_xyz)
+            atoms_xyz = torch.tensor(np.array(atoms_xyz), dtype=torch.float32)
 
             prop = self.prop_str2dict(lines[1])
             smiles = lines[-2].split()[0]
 
-            edge_index = [
-                [], # source (j)
-                []] # target (i)
-            ij_pos_vecs = []
-            for i in range(atom_num):
-                for j in range(i+1,atom_num):
-                    ij_vec = atoms_xyz[i,:]-atoms_xyz[j,:]
-                    if cutoff is not None and np.linalg.norm(ij_vec, ord=2) > cutoff:
-                        continue
-                    edge_index[0].append(j)
-                    edge_index[1].append(i)
-                    ij_pos_vecs.append(ij_vec)
-
-                    edge_index[0].append(i)
-                    edge_index[1].append(j)
-                    ij_pos_vecs.append(-ij_vec)
+            edge_index = radius_graph(atoms_xyz, r=cutoff, loop=False, max_num_neighbors=32)  # [j,i]
+            ij_pos_vecs = atoms_xyz[edge_index[1]] - atoms_xyz[edge_index[0]]
 
             for target in atomrefs:
                 ref_energy = np.array(atomrefs[target],dtype=np.float32)[atoms_type].sum()
@@ -105,14 +92,10 @@ class Loader(DatasetLoader):
 
             mass_center = None
             if atom_mass_dict is not None:
-                masses = np.array([atom_mass_dict[type_list[i]] for i in atoms_type]).reshape(-1, 1)
-                mass_center = (masses * atoms_xyz).sum(axis=0) / masses.sum()
-                mass_center = torch.tensor(mass_center,dtype=torch.float32)
+                masses = torch.tensor(np.array([atom_mass_dict[type_list[i]] for i in atoms_type]).reshape(-1, 1), dtype=torch.float32)
+                mass_center = (masses * atoms_xyz).sum(dim=0) / masses.sum()
 
-            atoms_xyz = torch.tensor(atoms_xyz,dtype=torch.float32)
             atoms_type = torch.tensor(atoms_type,dtype=torch.int).unsqueeze(1)
-            edge_index = torch.tensor(edge_index,dtype=torch.int)
-            ij_pos_vecs = torch.tensor(np.array(ij_pos_vecs),dtype=torch.float32)
 
             dataset.append([name, atoms_xyz, mass_center, atoms_type, ij_pos_vecs, edge_index, prop])
         if use_tqdm:

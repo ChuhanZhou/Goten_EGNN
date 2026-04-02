@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
-from configs import qm9_cfg as ds_cfg
+from configs import qm9_cfg,molecule3d_cfg
 
 config = {
+    'title': None,
     'atom_mass_path': "./dataset/PubChemElements_all.json", # download from https://pubchem.ncbi.nlm.nih.gov/ptable/atomic-mass/
     'log_path': "./log",
     'device': torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
@@ -14,9 +15,11 @@ config = {
 
     'atom_types': ['H', 'C', 'N', 'O', 'F'],
 
-    'dataset_cfg':ds_cfg,
+    'dataset_label':None,
 
     'grad_clip': None,
+    'batch_size': 32,
+    'epochs': 1000,
     'weight_decay': 0.01,
     'dropout': 0.1, # for self-attention only
     'stop_patience': None,
@@ -30,10 +33,19 @@ config = {
     'weight_init': nn.init.xavier_uniform_,
     'bias_init': nn.init.zeros_,
     'combine_heads': False,
-    'vec_rej': False,
+    #'vec_rej': False,
+
+    'predict_label': None,
 }
 
 config['high_degree_sizes'] = [2*i+1 for i in range(1,config['degree_max']+1)]
 
-if 'dataset_cfg' in config.keys() and config['dataset_cfg']:
-    config.update(config['dataset_cfg'].config)
+def update_dataset_cfg(cfg_type):
+    config['dataset_label'] = cfg_type
+    match cfg_type:
+        case 'qm9':
+            config.update(qm9_cfg.config)
+        case 'molecule3d':
+            config.update(molecule3d_cfg.config)
+        case _:
+            print('unknown dataset config: {}'.format(cfg_type))

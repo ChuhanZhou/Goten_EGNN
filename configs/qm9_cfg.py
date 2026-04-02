@@ -4,12 +4,12 @@ import torch.nn as nn
 
 #download from https://www.kaggle.com/datasets/zaharch/quantum-machine-9-aka-qm9
 config = {
-    'title':"QM9_B",
+    'title':"qm9_B",
     'dataset_path':"./dataset/dsgdb9nsd.xyz",
     'data_loader':qm9_loader.Loader(),
-    #'train_size':110000,
-    #'val_size':10000,
-    #'test_size':10000,
+    'train_size':110000,
+    'val_size':10000,
+    'test_size':10831,
 
     'atom_types': ['H', 'C', 'N', 'O', 'F'],
 
@@ -32,5 +32,5 @@ config = {
     'layer_num':6,
     'rbf_num':64,
 
-    'predict_label': "homo"
+    'predict_label': "alpha"
 }
