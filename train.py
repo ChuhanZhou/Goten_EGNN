@@ -43,12 +43,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
 
-    update_dataset_cfg(args.set)
     cfg['title'] = args.title
     cfg['seed'] = args.seed
     cfg['predict_label'] = args.label
     cfg['epochs'] = args.epoch
     cfg['batch_size'] = args.batch
+    update_dataset_cfg(args.set)
 
     if args.ckpt and not os.path.isfile(args.ckpt):
         print_log("Can't find ckpt at [{}]".format(args.ckpt))
