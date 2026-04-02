@@ -53,11 +53,14 @@ dependencies:
       - psutil==7.2.2
       - pyparsing==3.3.2
       - python-dateutil==2.9.0.post0
+      - rdkit==2025.9.6
       - requests==2.33.0
       - scipy==1.17.1
       - six==1.17.0
       - sympy==1.14.0
+      - --extra-index-url https://download.pytorch.org/whl/cu128
       - torch==2.11.0+cu128
+      - torch-cluster==1.6.3+pt211cu128
       - torch-geometric==2.7.0
       - torchvision==0.26.0+cu128
       - tqdm==4.67.3
