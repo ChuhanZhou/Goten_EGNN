@@ -33,14 +33,14 @@ class GotenNet(nn.Module):
         self.decoder = get_decoder(out_label,self.standardize,self.destandardize)
         self.apply(init_parameters)
 
-    def forward(self, atoms_pos, mass_center, x_n, x_e, edge_index,batch_index):
+    def forward(self, atoms_pos, x_n, x_e, edge_index,batch_index):
         r_ij,h,t_ij,X = self.embedding(x_n,x_e,edge_index)
 
         for i in range(cfg["layer_num"]):
             h, X, t_ij = self.gata_list[i](h, X, t_ij, r_ij, edge_index)
             h, X = self.eqff_list[i](h, X)
 
-        out = self.decoder(atoms_pos, mass_center, h,X[0],batch_index)
+        out = self.decoder(atoms_pos, h,X[0],batch_index)
 
         return out
 
@@ -79,7 +79,7 @@ class ExponentialRBFLayer(nn.Module):
 
         self.register_buffer("centers", torch.linspace(start, end, out_features))
 
-        delta = (end - start) / out_features
+        delta = (end - start) / (out_features-1)
         #gamma_init = 0.5 * delta ** -2
         gamma_init = (2 * delta) ** -2
         gammas = torch.tensor(gamma_init * out_features, dtype=torch.float32)
@@ -90,7 +90,7 @@ class ExponentialRBFLayer(nn.Module):
         centers = self.centers.unsqueeze(0)
         x_exp = torch.exp(self.alpha * (-x))
         dist = (x_exp - centers) ** 2
-        return torch.exp(-self.gammas*dist) * cos_cutoff(x,self.cutoff)
+        return torch.exp(-self.gammas*dist)# * cos_cutoff(x,self.cutoff)
 
 def cos_cutoff(r,r_cut=cfg["cutoff_radius"]):
     mask = r<r_cut

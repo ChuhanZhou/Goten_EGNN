@@ -39,9 +39,12 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', help="maximum epoch number", type=int, default=None)
     parser.add_argument('--batch', help="batch size", type=int, default=None)
     parser.add_argument('--tqdm', help="print progress bar", type=str, default="True")
-    parser.add_argument('--set', help="dataset type", type=str, default="qm9")
+    parser.add_argument('--set', help="dataset type", type=str, default="qm9_s")
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
+
+    #args.set = "molecule3d"
+    #args.label = "lumo"
 
     update_dataset_cfg(args.set)
     if args.title is not None:
@@ -61,8 +64,8 @@ if __name__ == '__main__':
 
     val_mae_history = []
     if args.ckpt:
-        update_dataset_cfg(cfg["dataset"]["title"])
         ckpt = torch.load(args.ckpt, weights_only=False)
+        update_dataset_cfg(ckpt["dataset"]["title"])
         cfg['seed'] = ckpt['seed']
         cfg["predict_label"] = ckpt["label"]
         val_mae_history += ckpt["val_history"]
@@ -94,7 +97,7 @@ if __name__ == '__main__':
         train_set = Subset(dataset, ckpt["dataset"]["train"])
         val_set = Subset(dataset, ckpt["dataset"]["valid"])
         test_set = Subset(dataset, ckpt["dataset"]["test"])
-    else:
+    elif cfg["dataset_random_split"]:
         if cfg["train_size"]>=1 and cfg["val_size"]>=1 and cfg["test_size"]>=1:
             data_drop_len = len(dataset) - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
         else:
@@ -104,8 +107,13 @@ if __name__ == '__main__':
             train_set, val_set, test_set, _ = random_split(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len])
         else:
             train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]])
+    elif cfg["dataset_set_split"]:
+        train_index_list,val_index_list,test_index_list = cfg["data_loader"].load_subsets(cfg["dataset_path"],use_small=False)
+        train_set = Subset(dataset, train_index_list)
+        val_set = Subset(dataset, val_index_list)
+        test_set = Subset(dataset, test_index_list)
 
-    prop_mean_std = get_mean_std([data[-1] for data in train_set])
+    prop_mean_std = get_mean_std([data[-1] for data in train_set],[cfg["predict_label"]])
     mean, std = prop_mean_std[cfg["predict_label"]]
 
     print_log("[{}] device: {} | random_seed: {} | train: {} | val: {} | test: {}".format(cfg["title"], device, seed, len(train_set), len(val_set), len(test_set)))
@@ -165,9 +173,9 @@ if __name__ == '__main__':
         total_loss = 0
         avg_loss = None
         for i, data in enumerate(train_dataloader):
-            [atoms_pos, mass_center, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
+            [atoms_pos, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
 
-            out = model(atoms_pos.to(device), mass_center.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
+            out = model(atoms_pos.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
 
             std_prop_value = model.standardize(prop_value.to(device))
             loss = cfg["loss_func"](out,std_prop_value)

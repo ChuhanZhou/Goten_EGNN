@@ -91,13 +91,15 @@ class Loader(DatasetLoader):
                 prop[target] = prop[target] - unit_u2mu(ref_energy)
 
             mass_center = None
+            atoms_pos = atoms_xyz
             if atom_mass_dict is not None:
                 masses = torch.tensor(np.array([atom_mass_dict[type_list[i]] for i in atoms_type]).reshape(-1, 1), dtype=torch.float32)
                 mass_center = (masses * atoms_xyz).sum(dim=0) / masses.sum()
+                atoms_pos = atoms_xyz - mass_center
 
             atoms_type = torch.tensor(atoms_type,dtype=torch.int).unsqueeze(1)
 
-            dataset.append([name, atoms_xyz, mass_center, atoms_type, ij_pos_vecs, edge_index, prop])
+            dataset.append([name, atoms_pos, atoms_type, ij_pos_vecs, edge_index, prop])
         if use_tqdm:
             progress_bar.close()
         print("Atom types: {}".format(atom_set))

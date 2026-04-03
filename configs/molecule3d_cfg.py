@@ -7,6 +7,8 @@ config = {
     'title':"molecule3d_B",
     'dataset_path':"./dataset/molecule3d",
     'data_loader':molecule3d_loader.Loader(),
+    'dataset_random_split':False,
+    'dataset_set_split':True,
 
     'atom_types': ['K', 'Kr', 'Mg', 'B', 'V', 'Cu', 'Ni', 'Ge', 'Mn', 'C', 'He', 'Na', 'Cl', 'Br', 'Si', 'Se', 'S', 'Co', 'Ca', 'H', 'Be', 'As', 'Ti', 'O', 'N', 'Al', 'P', 'Ga', 'Cr', 'F', 'Ar', 'Sc', 'Zn', 'Li', 'Ne', 'Fe'],
 
