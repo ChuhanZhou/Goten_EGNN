@@ -79,10 +79,10 @@ class ExponentialRBFLayer(nn.Module):
 
         self.register_buffer("centers", torch.linspace(start, end, out_features))
 
-        delta = (end - start) / (out_features - 1)
+        delta = (end - start) / out_features
         #gamma_init = 0.5 * delta ** -2
         gamma_init = (2 * delta) ** -2
-        gammas = torch.tensor(gamma_init, dtype=torch.float32)
+        gammas = torch.tensor(gamma_init * out_features, dtype=torch.float32)
         self.register_buffer("gammas", gammas)
         self.alpha = 5.0 / cutoff
 
@@ -102,19 +102,19 @@ class Embedding(nn.Module):
         super().__init__()
         self.rbf = ExponentialRBFLayer(cfg["rbf_num"])
 
-        self.w_ndp = nn.Linear(cfg["rbf_num"],cfg["node_dim"], bias=True)
+        self.w_ndp = nn.Linear(cfg["rbf_num"],cfg["node_dim"])
         self.a_nbr = nn.Embedding(len(cfg["atom_types"]),cfg["node_dim"])
 
         self.a_na = nn.Embedding(len(cfg["atom_types"]),cfg["node_dim"])
 
         self.w_nrd_nru = nn.Sequential(
-            nn.Linear(cfg["node_dim"]*2,cfg["node_dim"], bias=True), # w_nrd
+            nn.Linear(cfg["node_dim"]*2,cfg["node_dim"]), # w_nrd
             nn.LayerNorm(cfg["node_dim"]),
             cfg["activation"],
-            nn.Linear(cfg["node_dim"], cfg["node_dim"], bias=True), # w_nru
+            nn.Linear(cfg["node_dim"], cfg["node_dim"]), # w_nru
         )
 
-        self.w_erp = nn.Linear(cfg["rbf_num"], cfg["edge_dim"], bias=True)
+        self.w_erp = nn.Linear(cfg["rbf_num"], cfg["edge_dim"])
 
         irreps = o3.Irreps.spherical_harmonics(cfg['degree_max'])
         self.sphere = o3.SphericalHarmonics(irreps, normalize=False, normalization="norm")
@@ -214,10 +214,6 @@ class HTR(nn.Module):
         # vector rejection is not mentioned in the paper, but is a part of official implementation
         eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
         ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
-
-        #r_ij_ls = torch.cat(r_ij, dim=1)
-        #eq_i = self.vector_rejection(eq_i, r_ij_ls)
-        #ek_j = self.vector_rejection(ek_j, -r_ij_ls)
 
         w_ij = (eq_i * ek_j).sum(dim=1)
 
