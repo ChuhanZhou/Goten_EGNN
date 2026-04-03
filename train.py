@@ -43,9 +43,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
 
-    #args.set = "molecule3d"
-    #args.label = "lumo"
-
     update_dataset_cfg(args.set)
     if args.title is not None:
         cfg['title'] = args.title

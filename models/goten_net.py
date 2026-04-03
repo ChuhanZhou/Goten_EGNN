@@ -82,7 +82,7 @@ class ExponentialRBFLayer(nn.Module):
         delta = (end - start) / (out_features-1)
         #gamma_init = 0.5 * delta ** -2
         gamma_init = (2 * delta) ** -2
-        gammas = torch.tensor(gamma_init * out_features, dtype=torch.float32)
+        gammas = torch.tensor([gamma_init] * out_features, dtype=torch.float32)
         self.register_buffer("gammas", gammas)
         self.alpha = 5.0 / cutoff
 
