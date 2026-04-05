@@ -1,5 +1,5 @@
 from configs.config import config as cfg
-from data_loader import download,has_file,ensure_dir
+from tool.data_loader import download,has_file,ensure_dir
 
 import torch
 import torch.nn as nn
