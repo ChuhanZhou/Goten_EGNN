@@ -1,4 +1,5 @@
 from configs.config import config as cfg
+from data_loader import download,has_file,ensure_dir
 
 import torch
 import torch.nn as nn
@@ -6,6 +7,7 @@ import numpy as np
 import random
 import json
 import math
+import os
 
 def collate_fn(batch):
     batch_atoms_pos = torch.zeros((0, 3))
@@ -69,7 +71,13 @@ def unit_Ha2meV(ha):
 
 def load_atom_mass(file_path=None):
     if file_path == None:
-        file_path = cfg["atom_mass_path"]
+        file_path = cfg["atom_mass"]["path"]
+
+    ensure_dir(file_path)
+    if not has_file(file_path):
+        url = cfg["atom_mass"]["url"]
+        dir = os.path.dirname(file_path)
+        download(url,dir)
 
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)

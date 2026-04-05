@@ -1,4 +1,4 @@
-from tool.data_loader import DatasetLoader,unit_Ha2meV,unit_u2mu
+from tool.data_loader import DatasetLoader,unit_Ha2meV,unit_u2mu,download,has_file
 
 import os
 from tqdm import tqdm
@@ -109,9 +109,9 @@ class Loader(DatasetLoader):
 
         raw_path = "{}/raw".format(folder_path)
         for file in source_files:
-            if not self.has_file("{}/{}".format(raw_path, file)):
-                self.download(QM9.raw_url,raw_path,extract=True)
-                self.download(QM9.raw_url2,raw_path,rename="uncharacterized.txt")
+            if not has_file("{}/{}".format(raw_path, file)):
+                download(QM9.raw_url,raw_path,extract=True)
+                download(QM9.raw_url2,raw_path,rename="uncharacterized.txt")
 
         prop_list = self.load_from_csv("{}/{}".format(raw_path,source_files[1]),use_tqdm=use_tqdm)
 

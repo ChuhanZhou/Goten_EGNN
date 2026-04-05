@@ -4,7 +4,10 @@ from configs import qm9_cfg,qm9_s_cfg,molecule3d_cfg
 
 config = {
     'title': None,
-    'atom_mass_path': "./dataset/PubChemElements_all.json", # download from https://pubchem.ncbi.nlm.nih.gov/ptable/atomic-mass/
+    'atom_mass': {
+        "path": "./dataset/PubChemElements_all.json",
+        "url": "https://pubchem.ncbi.nlm.nih.gov/rest/pug/periodictable/JSON?response_type=save&response_basename=PubChemElements_all",
+    },
     'log_path': "./log",
     'device': torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
     'seed': 1,

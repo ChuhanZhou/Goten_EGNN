@@ -11,16 +11,6 @@ import datetime
 from torch_cluster import radius_graph
 
 class DatasetLoader(ABC):
-    @staticmethod
-    def has_file(file_path):
-        if file_path == None:
-            return False
-        return os.path.isfile(file_path)
-
-    @staticmethod
-    def ensure_dir(dir_path):
-        os.makedirs(dir_path, exist_ok=True)
-
     def load(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True):
         dataset = self.load_unsorted_data(folder_path,type_list,cutoff,atom_mass_dict,use_tqdm)
 
@@ -33,7 +23,7 @@ class DatasetLoader(ABC):
         dataset = []
         atom_set = set()
 
-        if not self.has_file(sdf_file_path):
+        if not has_file(sdf_file_path):
             print("Cannot find {}".format(sdf_file_path))
             return dataset,atom_set
 
@@ -95,17 +85,24 @@ class DatasetLoader(ABC):
     def load_unsorted_data(self, folder_path, type_list ,cutoff=None, atom_mass_dict=None, use_tqdm=True):
         pass
 
-    @staticmethod
-    def download(url,dir,rename=None,extract=False):
-        DatasetLoader.ensure_dir(dir)
-        file_path = download_url(url, dir)
+def has_file(file_path):
+    if file_path == None:
+        return False
+    return os.path.isfile(file_path)
 
-        if extract:
-            extract_zip(file_path, dir)
-            os.unlink(file_path)
+def ensure_dir(dir_path):
+    os.makedirs(dir_path, exist_ok=True)
 
-        if rename is not None:
-            os.rename(osp.join(dir, os.path.basename(url)),osp.join(dir, rename))
+def download(url,dir,rename=None,extract=False):
+    ensure_dir(dir)
+    file_path = download_url(url, dir)
+
+    if extract:
+        extract_zip(file_path, dir)
+        os.unlink(file_path)
+
+    if rename is not None:
+        os.rename(osp.join(dir, os.path.basename(url)),osp.join(dir, rename))
 
 def unit_Ha2meV(ha):
     return ha * 27211.386245981

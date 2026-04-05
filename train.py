@@ -3,7 +3,6 @@ import sys
 
 from configs.config import config as cfg,update_model_cfg
 from models.goten_net import GotenNet
-from models.other_net import OtherNet
 from tool.utils import collate_fn,get_mean_std,load_atom_mass
 from test import test
 from tool.log_utils import print_log,LogFileName,load_log
