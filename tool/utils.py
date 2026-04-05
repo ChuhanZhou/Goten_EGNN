@@ -73,10 +73,10 @@ def load_atom_mass(file_path=None):
     if file_path == None:
         file_path = cfg["atom_mass"]["path"]
 
-    ensure_dir(file_path)
+    dir = os.path.dirname(file_path)
+    ensure_dir(dir)
     if not has_file(file_path):
         url = cfg["atom_mass"]["url"]
-        dir = os.path.dirname(file_path)
         download(url,dir)
 
     with open(file_path, 'r', encoding='utf-8') as f:
