@@ -43,8 +43,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
 
-    args.ckpt = "./ckpt/qm9_S_t110000_s1_alpha.pth"
-
     update_model_cfg(args.ver)
     if args.title is not None:
         cfg['title'] = args.title
