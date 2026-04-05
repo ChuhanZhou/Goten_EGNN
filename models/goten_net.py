@@ -90,7 +90,7 @@ class ExponentialRBFLayer(nn.Module):
         centers = self.centers.unsqueeze(0)
         x_exp = torch.exp(self.alpha * (-x))
         dist = (x_exp - centers) ** 2
-        return torch.exp(-self.gammas*dist)# * cos_cutoff(x,self.cutoff)
+        return torch.exp(-self.gammas*dist) * cos_cutoff(x,self.cutoff)
 
 def cos_cutoff(r,r_cut=cfg["cutoff_radius"]):
     mask = r<r_cut
@@ -217,7 +217,7 @@ class HTR(nn.Module):
 
         w_ij = (eq_i * ek_j).sum(dim=1)
 
-        dt_ij = self.mlp_w(w_ij) * self.mlp_t(t_ij)
+        dt_ij = self.mlp_w(w_ij) * self.act_fn(self.mlp_t(t_ij))
         return dt_ij
 
     @staticmethod
