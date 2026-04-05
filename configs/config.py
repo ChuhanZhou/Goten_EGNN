@@ -15,7 +15,7 @@ config = {
     'dataset_set_split':False,
     'test_in_train':True,
 
-    'dataset_label':None,
+    'model_type':None,
     'atom_types': ['H', 'C', 'N', 'O', 'F'],
 
     'grad_clip': None,
@@ -41,8 +41,8 @@ config = {
 
 config['high_degree_sizes'] = [2*i+1 for i in range(1,config['degree_max']+1)]
 
-def update_dataset_cfg(cfg_type):
-    config['dataset_label'] = cfg_type
+def update_model_cfg(cfg_type):
+    config['model_type'] = cfg_type
     match cfg_type:
         case 'qm9':
             config.update(qm9_cfg.config)
@@ -51,4 +51,4 @@ def update_dataset_cfg(cfg_type):
         case 'molecule3d':
             config.update(molecule3d_cfg.config)
         case _:
-            print('unknown dataset config: {}'.format(cfg_type))
+            print('unknown model config: {}'.format(cfg_type))

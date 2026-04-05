@@ -2,10 +2,9 @@ from tool import qm9_loader
 
 import torch.nn as nn
 
-#download from https://www.kaggle.com/datasets/zaharch/quantum-machine-9-aka-qm9
 config = {
     'title':"qm9_B",
-    'dataset_path':"./dataset/dsgdb9nsd.xyz",
+    'dataset_path':"./dataset/qm9",
     'data_loader':qm9_loader.Loader(),
     'train_size':110000,
     'val_size':10000,

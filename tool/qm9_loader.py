@@ -6,6 +6,8 @@ import datetime
 import numpy as np
 import torch
 from torch_cluster import radius_graph
+from torch_geometric.datasets import QM9
+import pandas as pd
 
 # Atom reference energy
 # ['H', 'C', 'N', 'O', 'F'] unit: eV
@@ -27,6 +29,8 @@ atomrefs = {
         -2713.88796536
     ],
 }
+
+source_files = ['gdb9.sdf', 'gdb9.sdf.csv', 'uncharacterized.txt']
 
 class Loader(DatasetLoader):
     def __init__(self):
@@ -58,49 +62,64 @@ class Loader(DatasetLoader):
             f_list.append(float(s.replace("*^","e")))
         return f_list
 
+    def load_from_csv(self,csv_file_path,use_tqdm=True):
+
+        df = pd.read_csv(csv_file_path)
+
+        start_info = "[{}] Loading prop data from {}".format(datetime.datetime.now(), csv_file_path)
+        if use_tqdm:
+            iterator = tqdm(range(df.shape[0]),desc=start_info) if use_tqdm else range(df.shape[0])
+        else:
+            print(start_info)
+            iterator = range(df.shape[0])
+
+        id_data = df["mol_id"].values
+        mu_data = df["mu"].values.astype(np.float32)
+        alpha_data = df["alpha"].values.astype(np.float32)
+        homo_data = df["homo"].values.astype(np.float32)
+        lumo_data = df["lumo"].values.astype(np.float32)
+        gap_data = df["gap"].values.astype(np.float32)
+        r2_data = df["r2"].values.astype(np.float32)
+        zpve_data = df["zpve"].values.astype(np.float32)
+        u0_data = df["u0"].values.astype(np.float32)
+        u_data = df["u298"].values.astype(np.float32)
+        h_data = df["h298"].values.astype(np.float32)
+        g_data = df["g298"].values.astype(np.float32)
+        cv_data = df["cv"].values.astype(np.float32)
+
+        prop_list = [{
+            "id": id_data[i],
+            "prop": {
+                "mu": unit_u2mu(mu_data[i]), # dipole moment
+                "alpha": unit_u2mu(alpha_data[i]), # isotropic polarizability
+                "homo": unit_Ha2meV(homo_data[i]),  # energy of homo
+                "lumo": unit_Ha2meV(lumo_data[i]),  # energy of lumo
+                "gap": unit_Ha2meV(gap_data[i]),  # gap(lumo-homo)
+                "r2": unit_u2mu(r2_data[i]), # electronic spatial extent
+                "zpve": unit_Ha2meV(zpve_data[i]), # zero point vibrational energy
+                "u0": unit_Ha2meV(u0_data[i]), # internal energy at 0K
+                "u": unit_Ha2meV(u_data[i]), # internal energy at 298.15K
+                "h": unit_Ha2meV(h_data[i]), # enthalpy at 298.15K
+                "g": unit_Ha2meV(g_data[i]), # free energy at 298.15K
+                "cv": unit_u2mu(cv_data[i]), # heat capacity at 298.15K
+            }} for i in iterator]
+        return prop_list
+
     def load_unsorted_data(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True):
-        dataset = []
-        if use_tqdm:
-            progress_bar = tqdm(desc="[{}] Loading data from {}".format(datetime.datetime.now(),folder_path), total=len(os.listdir(folder_path)))
-        atom_set = set()
-        for name in os.listdir(folder_path):
-            if use_tqdm:
-                progress_bar.update()
-            data_path = "{}/{}".format(folder_path, name)
-            with open(data_path, 'r', encoding='utf-8') as file:
-                lines = file.readlines()
 
-            atoms_type = []
-            atoms_xyz = []
-            atom_num = int(lines[0])
-            for line in lines[2:2+atom_num]:
-                atom_set.add(line.split()[0])
-                atoms_type.append(type_list.index(line.split()[0]))
-                atoms_xyz.append(self.xyz_str2float(line.split()[1:-1]))
+        raw_path = "{}/raw".format(folder_path)
+        for file in source_files:
+            if not self.has_file("{}/{}".format(raw_path, file)):
+                self.download(QM9.raw_url,raw_path,extract=True)
+                self.download(QM9.raw_url2,raw_path,rename="uncharacterized.txt")
 
-            atoms_xyz = torch.tensor(np.array(atoms_xyz), dtype=torch.float32)
+        prop_list = self.load_from_csv("{}/{}".format(raw_path,source_files[1]),use_tqdm=use_tqdm)
 
-            prop = self.prop_str2dict(lines[1])
-            smiles = lines[-2].split()[0]
+        with open("{}/{}".format(raw_path,source_files[2])) as f:
+            skip_list = [int(x.split()[0]) - 1 for x in f.read().split('\n')[9:-2]]
 
-            edge_index = radius_graph(atoms_xyz, r=cutoff, loop=False, max_num_neighbors=32)  # [j,i]
-            ij_pos_vecs = atoms_xyz[edge_index[1]] - atoms_xyz[edge_index[0]]
+        sdf_path = "{}/{}".format(raw_path, source_files[0])
+        dataset, atom_set = self.load_from_sdf(sdf_path,prop_list, type_list, cutoff, atom_mass_dict, atomrefs=atomrefs, use_tqdm=use_tqdm,skip_list=skip_list)
 
-            for target in atomrefs:
-                ref_energy = np.array(atomrefs[target],dtype=np.float32)[atoms_type].sum()
-                prop[target] = prop[target] - unit_u2mu(ref_energy)
-
-            mass_center = None
-            atoms_pos = atoms_xyz
-            if atom_mass_dict is not None:
-                masses = torch.tensor(np.array([atom_mass_dict[type_list[i]] for i in atoms_type]).reshape(-1, 1), dtype=torch.float32)
-                mass_center = (masses * atoms_xyz).sum(dim=0) / masses.sum()
-                atoms_pos = atoms_xyz - mass_center
-
-            atoms_type = torch.tensor(atoms_type,dtype=torch.int).unsqueeze(1)
-
-            dataset.append([name, atoms_pos, atoms_type, ij_pos_vecs, edge_index, prop])
-        if use_tqdm:
-            progress_bar.close()
         print("Atom types: {}".format(atom_set))
         return dataset

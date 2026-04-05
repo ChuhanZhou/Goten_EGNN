@@ -1,4 +1,4 @@
-from configs.config import config as cfg,update_dataset_cfg
+from configs.config import config as cfg,update_model_cfg
 from models.goten_net import GotenNet
 from tool.utils import collate_fn,load_atom_mass,get_mean_std
 
@@ -65,7 +65,6 @@ MODEL_TARGET_LIST = ["alpha","gap","homo","lumo","mu","mu_3d","cv","g","h","r2",
 if __name__ == '__main__':
     title_label = "qm9_B_t110000_s1"
     test_results = {}
-    #cfg['device'] = "cpu"
 
     train_set = val_set = test_set = dataset = None
     print_4f = False
@@ -79,14 +78,14 @@ if __name__ == '__main__':
         cfg['predict_label'] = ckpt["label"]
 
         if dataset is None:
-            update_dataset_cfg(ckpt["dataset"]["title"])
+            update_model_cfg(ckpt["dataset"]["version"])
             dataset = cfg["data_loader"].load(cfg["dataset_path"], cfg['atom_types'], cutoff=cfg["cutoff_radius"],atom_mass_dict=load_atom_mass())
             train_set = Subset(dataset, ckpt["dataset"]["train"])
             val_set = Subset(dataset, ckpt["dataset"]["valid"])
             test_set = Subset(dataset, ckpt["dataset"]["test"])
 
         model = GotenNet()
-        #model.load_state_dict(ckpt["model_ckpt"], strict=True)
+        model.load_state_dict(ckpt["model_ckpt"], strict=True)
 
         #val_loss, val_mae, _ = test(model, val_set, title="val_set")
         #time.sleep(0.01)

@@ -1,8 +1,9 @@
 import math
 import sys
 
-from configs.config import config as cfg,update_dataset_cfg
+from configs.config import config as cfg,update_model_cfg
 from models.goten_net import GotenNet
+from models.other_net import OtherNet
 from tool.utils import collate_fn,get_mean_std,load_atom_mass
 from test import test
 from tool.log_utils import print_log,LogFileName,load_log
@@ -39,11 +40,13 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', help="maximum epoch number", type=int, default=None)
     parser.add_argument('--batch', help="batch size", type=int, default=None)
     parser.add_argument('--tqdm', help="print progress bar", type=str, default="True")
-    parser.add_argument('--set', help="dataset type", type=str, default="qm9_s")
+    parser.add_argument('--ver', help="model type", type=str, default="qm9_s")
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
 
-    update_dataset_cfg(args.set)
+    args.ckpt = "./ckpt/qm9_S_t110000_s1_alpha.pth"
+
+    update_model_cfg(args.ver)
     if args.title is not None:
         cfg['title'] = args.title
     if args.seed is not None:
@@ -62,7 +65,7 @@ if __name__ == '__main__':
     val_mae_history = []
     if args.ckpt:
         ckpt = torch.load(args.ckpt, weights_only=False)
-        update_dataset_cfg(ckpt["dataset"]["title"])
+        update_model_cfg(ckpt["dataset"]["version"])
         cfg['seed'] = ckpt['seed']
         cfg["predict_label"] = ckpt["label"]
         val_mae_history += ckpt["val_history"]
@@ -113,7 +116,7 @@ if __name__ == '__main__':
     prop_mean_std = get_mean_std([data[-1] for data in train_set],[cfg["predict_label"]])
     mean, std = prop_mean_std[cfg["predict_label"]]
 
-    print_log("[{}] device: {} | random_seed: {} | train: {} | val: {} | test: {}".format(cfg["title"], device, seed, len(train_set), len(val_set), len(test_set)))
+    print_log("[{}({})] device: {} | random_seed: {} | total: {} | train: {} | val: {} | test: {}".format(cfg["title"],cfg["model_type"], device, seed, len(dataset), len(train_set), len(val_set), len(test_set)))
 
     #model = GotenNet()
     model = GotenNet(mean=mean, std=std)
@@ -218,7 +221,7 @@ if __name__ == '__main__':
             "seed": seed,
             "label": cfg["predict_label"],
             "dataset": {
-                "title": cfg["dataset_label"],
+                "version": cfg["model_type"],
                 "train": train_set.indices,
                 "valid": val_set.indices,
                 "test": test_set.indices,

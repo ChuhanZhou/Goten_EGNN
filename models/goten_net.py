@@ -173,12 +173,12 @@ class SelfAttentionLayer(nn.Module):
         v_j = self.mlp_v(h).reshape(h.shape[0],self.head_num,-1)[n_j]
 
         a_ij = (q_i * k_j * self.act_fn(self.w_re(t_ij)).reshape(t_ij.shape[0],self.head_num,-1)).sum(dim=-1,keepdims=True)
-        a_i = softmax(a_ij, n_i, dim=0)
+        a_i = softmax(a_ij, n_i, num_nodes=h.shape[0], dim=0)
 
         # not in the paper but in the author's code
-        #norm = 1.0 / math.sqrt(v_j.shape[2])
+        #norm = 1.0 / math.sqrt(cfg["node_dim"])
         n_i_edges = scatter(torch.ones([len(n_i),1,1],device=n_i.device),n_i,dim=0,reduce="sum")
-        norm = torch.sqrt(n_i_edges) / math.sqrt(v_j.shape[2])
+        norm = torch.sqrt(n_i_edges) / math.sqrt(cfg["node_dim"])
         norm = norm[n_i]
 
         a_i = self.dropout(a_i * norm)
@@ -212,12 +212,12 @@ class HTR(nn.Module):
         ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j]
 
         # vector rejection is not mentioned in the paper, but is a part of official implementation
-        eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
-        ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
+        #eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
+        #ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
 
         w_ij = (eq_i * ek_j).sum(dim=1)
 
-        dt_ij = self.mlp_w(w_ij) * self.act_fn(self.mlp_t(t_ij))
+        dt_ij = self.mlp_w(w_ij) * self.mlp_t(t_ij)
         return dt_ij
 
     @staticmethod
@@ -256,26 +256,26 @@ class GATA(nn.Module):
         sea_ij = self.sea(h, t_ij, edge_index)
 
         o_ij = sea_ij + self.w_rs(t_ij) * self.mlp_s(h)[n_j] * cos_cutoff(r_0)
-        o_ij = torch.split(o_ij.unsqueeze(1), cfg["node_dim"], dim=-1)
+        o_ij = o_ij.view(edge_index.shape[1], -1, cfg["node_dim"])
 
-        o_ij_s = o_ij[0].squeeze(1)
+        o_ij_s = o_ij[:,0,:]
         dh = scatter(o_ij_s, n_i, dim=0, dim_size=len(h),reduce="sum")
         h = h + dh
 
-        o_ij_d = o_ij[1:1+cfg["degree_max"]]
+        o_ij_d = o_ij[:,1:1+cfg["degree_max"],:]
         o_ij_t = None
         if X is not None:
-            o_ij_t = o_ij[1+cfg["degree_max"]:1+cfg["degree_max"]*2]
+            o_ij_t = o_ij[:,1+cfg["degree_max"]:1+cfg["degree_max"]*2,:]
         else:
             X = []
 
-        for i in range(len(o_ij_d)):
+        for i in range(cfg["degree_max"]):
             l = i + 1
             if o_ij_t is not None:
-                dX_l = scatter(o_ij_d[i] * r_ij[l].unsqueeze(-1) + o_ij_t[i] * X[i][n_j], n_i, dim=0, dim_size=len(h),reduce="sum")
+                dX_l = scatter(o_ij_d[:,i:i+1,:] * r_ij[l].unsqueeze(-1) + o_ij_t[:,i:i+1,:] * X[i][n_j], n_i, dim=0, dim_size=len(h),reduce="sum")
                 X[i] = X[i] + dX_l
             else:
-                dX_l = scatter(o_ij_d[i] * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(h),reduce="sum")
+                dX_l = scatter(o_ij_d[:,i:i+1,:] * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(h),reduce="sum")
                 X.append(dX_l)
 
         return h, X, t_ij
