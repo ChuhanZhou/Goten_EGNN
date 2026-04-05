@@ -62,6 +62,25 @@ class Loader(DatasetLoader):
             f_list.append(float(s.replace("*^","e")))
         return f_list
 
+    def load_unsorted_data(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True):
+
+        raw_path = "{}/raw".format(folder_path)
+        for file in source_files:
+            if not has_file("{}/{}".format(raw_path, file)):
+                download(QM9.raw_url,raw_path,extract=True)
+                download(QM9.raw_url2,raw_path,rename="uncharacterized.txt")
+
+        prop_list = self.load_from_csv("{}/{}".format(raw_path,source_files[1]),use_tqdm=use_tqdm)
+
+        with open("{}/{}".format(raw_path,source_files[2])) as f:
+            skip_list = [int(x.split()[0]) - 1 for x in f.read().split('\n')[9:-2]]
+
+        sdf_path = "{}/{}".format(raw_path, source_files[0])
+        dataset, atom_set = self.load_from_sdf(sdf_path,prop_list, type_list, cutoff, atom_mass_dict, atomrefs=atomrefs, use_tqdm=use_tqdm,skip_list=skip_list)
+
+        print("Atom types: {}".format(atom_set))
+        return dataset
+
     def load_from_csv(self,csv_file_path,use_tqdm=True):
 
         df = pd.read_csv(csv_file_path)
@@ -104,22 +123,3 @@ class Loader(DatasetLoader):
                 "cv": unit_u2mu(cv_data[i]), # heat capacity at 298.15K
             }} for i in iterator]
         return prop_list
-
-    def load_unsorted_data(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True):
-
-        raw_path = "{}/raw".format(folder_path)
-        for file in source_files:
-            if not has_file("{}/{}".format(raw_path, file)):
-                download(QM9.raw_url,raw_path,extract=True)
-                download(QM9.raw_url2,raw_path,rename="uncharacterized.txt")
-
-        prop_list = self.load_from_csv("{}/{}".format(raw_path,source_files[1]),use_tqdm=use_tqdm)
-
-        with open("{}/{}".format(raw_path,source_files[2])) as f:
-            skip_list = [int(x.split()[0]) - 1 for x in f.read().split('\n')[9:-2]]
-
-        sdf_path = "{}/{}".format(raw_path, source_files[0])
-        dataset, atom_set = self.load_from_sdf(sdf_path,prop_list, type_list, cutoff, atom_mass_dict, atomrefs=atomrefs, use_tqdm=use_tqdm,skip_list=skip_list)
-
-        print("Atom types: {}".format(atom_set))
-        return dataset

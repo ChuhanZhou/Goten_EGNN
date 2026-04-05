@@ -5,10 +5,12 @@ import numpy as np
 import rdkit
 import os.path as osp
 import torch
-from rdkit import Chem
+from rdkit import Chem,RDLogger
 from tqdm import tqdm
 import datetime
 from torch_cluster import radius_graph
+
+#RDLogger.DisableLog('rdApp.warning')
 
 class DatasetLoader(ABC):
     def load(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True):

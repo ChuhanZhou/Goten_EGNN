@@ -77,7 +77,7 @@ def load_atom_mass(file_path=None):
     ensure_dir(dir)
     if not has_file(file_path):
         url = cfg["atom_mass"]["url"]
-        download(url,dir)
+        download(url,dir,rename=os.path.basename(file_path))
 
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)

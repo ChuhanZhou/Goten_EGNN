@@ -6,7 +6,7 @@ config = {
     'title': None,
     'atom_mass': {
         "path": "./dataset/PubChemElements_all.json",
-        "url": "https://pubchem.ncbi.nlm.nih.gov/rest/pug/periodictable/JSON?response_type=save&response_basename=PubChemElements_all",
+        "url": "https://pubchem.ncbi.nlm.nih.gov/rest/pug/periodictable/JSON",
     },
     'log_path': "./log",
     'device': torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
