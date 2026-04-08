@@ -100,10 +100,12 @@ if __name__ == '__main__':
         else:
             data_drop_len = 1.0 - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
 
+        split_g = torch.Generator().manual_seed(seed)
+
         if data_drop_len!=0:
-            train_set, val_set, test_set, _ = random_split(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len])
+            train_set, val_set, test_set, _ = random_split(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len],generator=split_g)
         else:
-            train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]])
+            train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]],generator=split_g)
     elif cfg["dataset_set_split"]:
         train_index_list,val_index_list,test_index_list = cfg["data_loader"].load_subsets(cfg["dataset_path"],use_small=False)
         train_set = Subset(dataset, train_index_list)
@@ -170,6 +172,10 @@ if __name__ == '__main__':
         total_loss = 0
         avg_loss = None
         for i, data in enumerate(train_dataloader):
+            # early stop
+            if cfg["stop_patience"] is not None and not_best_step >= cfg["stop_patience"]:
+                break
+
             [atoms_pos, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
 
             out = model(atoms_pos.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
@@ -227,15 +233,13 @@ if __name__ == '__main__':
             "val_history":val_mae_history,
         }
         torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
+
         if min_val_mae > val_mae:
             min_val_mae = val_mae
             torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
             not_best_step = 0
         else:
             not_best_step += 1
-
-        if cfg["stop_patience"] is not None and not_best_step >= cfg["stop_patience"]:
-            break
 
     best_ckpt_path = "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"])
     best_ckpt = torch.load(best_ckpt_path, weights_only=False)["model_ckpt"]

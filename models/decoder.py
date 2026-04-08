@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 import math
 
 class MLP(nn.Module):
-    def __init__(self,in_features,out_features,hidden_dim=None,pre_norm=False,act_fn=None):
+    def __init__(self,in_features,out_features,hidden_dim=None,pre_norm=False,norm=False,act_fn=None):
         super().__init__()
 
         if hidden_dim is None:
@@ -16,20 +16,16 @@ class MLP(nn.Module):
         if act_fn is None:
             act_fn = cfg["activation"]
 
-        self.ln = None
-        if pre_norm:
-            self.ln = nn.LayerNorm(in_features)
-
         self.mlp = nn.Sequential(
+            nn.LayerNorm(in_features) if pre_norm else nn.Identity(),
             nn.Linear(in_features, hidden_dim),
+            nn.LayerNorm(hidden_dim) if norm else nn.Identity(),
             act_fn,
             #nn.Dropout(cfg["dropout"]),
             nn.Linear(hidden_dim, out_features),
         )
 
     def forward(self, x):
-        if self.ln is not None:
-            x = self.ln(x)
         return self.mlp(x)
 
 class Gate(nn.Module): # gate
@@ -169,8 +165,6 @@ class DipoleMomentDecoder(GraphDecoder):
         self.destandardize = destandardize
 
     def forward(self, pos, scaler, vector, batch_index):
-        #mass_center_vec = pos - mass_center[batch_index]
-
         q_i, mu_i = self.gate_0(scaler,vector)
         q_i = self.act_fn(q_i)
         q_i, mu_i = self.gate_1(q_i, mu_i)
@@ -190,21 +184,21 @@ class DipoleMomentDecoder(GraphDecoder):
         return out
 
 class IsotropicPolarizabilityDecoder(GraphDecoder):
-    def __init__(self,in_features,hidden_dim=None):
+    def __init__(self,in_features,hidden_dim=None,standardize=None,destandardize=None):
         super().__init__()
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder_alpha = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim,pre_norm=True)
-        self.decoder_nu = Gate(in_features=in_features,out_features=1,hidden_dim=hidden_dim,pre_norm=True)
+        self.decoder_nu = GateV2(in_features=in_features,out_features=1,hidden_dim=hidden_dim)
 
     def forward(self, pos, scaler, vector, batch_index):
-        #mass_center_vec = pos - mass_center[batch_index]
         I_3 = torch.eye(3,device=scaler.device)
-        nu = self.decoder_nu(scaler, vector).squeeze()
+        s,nu = self.decoder_nu(scaler, vector)
+
+        nu = nu.squeeze()
         outer_1 = nu.unsqueeze(-1) * pos.unsqueeze(-2)
         outer_2 = pos.unsqueeze(-1) * nu.unsqueeze(-2)
-        alpha = self.decoder_alpha(scaler).unsqueeze(-1) * I_3 + outer_1 + outer_2
+        alpha = s.unsqueeze(-1) * I_3 + outer_1 + outer_2
         out = scatter(alpha, batch_index, dim=0, reduce="sum")
         out = out.diagonal(dim1=-2, dim2=-1).sum(-1) / 3
         out = out.unsqueeze(-1)
@@ -222,7 +216,6 @@ class ElectronicSpatialExtentDecoder(GraphDecoder):
         self.destandardize = destandardize
 
     def forward(self, pos, scaler, vector, batch_index):
-        #mass_center_vec = pos - mass_center[batch_index]
         q_i = self.decoder_q(scaler)
 
         r2_i = torch.norm(pos,dim=1,keepdim=True) ** 2
@@ -230,7 +223,6 @@ class ElectronicSpatialExtentDecoder(GraphDecoder):
         out = scatter(q_i * r2_i, batch_index, dim=0, reduce="sum")
 
         if self.standardize is not None:
-           out = self.standardize(out)
+            out = self.standardize(out)
 
         return out
-

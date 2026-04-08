@@ -1,3 +1,5 @@
+import sys
+
 from configs.config import config as cfg,update_model_cfg
 from models.goten_net import GotenNet
 from tool.utils import collate_fn,load_atom_mass,get_mean_std
@@ -63,8 +65,10 @@ def test(model,dataset,title="testing",use_tqdm=True):
 MODEL_TARGET_LIST = ["alpha","gap","homo","lumo","mu","mu_3d","cv","g","h","r2","u","u0","zpve","f","e"]
 
 if __name__ == '__main__':
-    title_label = "qm9_B_t110000_s1"
+    title_label = "qm9_S_t110000_s1"
     test_results = {}
+    test_stds = []
+    test_logs = []
 
     train_set = val_set = test_set = dataset = None
     print_4f = False
@@ -98,6 +102,7 @@ if __name__ == '__main__':
         #print(test_result)
 
         test_results[target] = {"mae":test_mae,"out_label":test_out_labels}
+        test_stds.append(np.abs(test_out_labels[:,0]-test_out_labels[:,1]).std())
 
     if "homo" in test_results and "lumo" in test_results:
         gap_out_label = test_results["lumo"]["out_label"]-test_results["homo"]["out_label"]

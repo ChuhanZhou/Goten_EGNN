@@ -63,7 +63,6 @@ class Loader(DatasetLoader):
         return f_list
 
     def load_unsorted_data(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True):
-
         raw_path = "{}/raw".format(folder_path)
         for file in source_files:
             if not has_file("{}/{}".format(raw_path, file)):

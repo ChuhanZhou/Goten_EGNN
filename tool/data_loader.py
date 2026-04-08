@@ -9,19 +9,29 @@ from rdkit import Chem,RDLogger
 from tqdm import tqdm
 import datetime
 from torch_cluster import radius_graph
+import gzip
 
-#RDLogger.DisableLog('rdApp.warning')
+RDLogger.DisableLog('rdApp.warning')
 
 class DatasetLoader(ABC):
     def load(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True):
+        dataset = load_processed_data(folder_path)
+        if dataset is not None:
+            return dataset
+
         dataset = self.load_unsorted_data(folder_path,type_list,cutoff,atom_mass_dict,use_tqdm)
 
         # sort dataset to ensure the same sequence on different devices
-        dataset.sort(key=lambda x: x[0])
+        # dataset.sort(key=lambda x: x[0])
 
+        save_processed_data(dataset, folder_path)
         return dataset
 
-    def load_from_sdf(self,sdf_file_path, prop_list, type_list, cutoff=None, atom_mass_dict=None, atomrefs=None, use_tqdm=True, init_index=0, skip_list=[]):
+    @abstractmethod
+    def load_unsorted_data(self, folder_path, type_list, cutoff=None, atom_mass_dict=None, use_tqdm=True):
+        pass
+
+    def load_from_sdf(self,sdf_file_path, prop_list, type_list, cutoff=None, atom_mass_dict=None, atomrefs=[], use_tqdm=True, init_index=0, skip_list=[]):
         dataset = []
         atom_set = set()
 
@@ -83,10 +93,6 @@ class DatasetLoader(ABC):
             progress_bar.close()
         return dataset, atom_set
 
-    @abstractmethod
-    def load_unsorted_data(self, folder_path, type_list ,cutoff=None, atom_mass_dict=None, use_tqdm=True):
-        pass
-
 def has_file(file_path):
     if file_path == None:
         return False
@@ -106,8 +112,31 @@ def download(url,dir,rename=None,extract=False):
     if rename is not None:
         os.rename(osp.join(dir, os.path.basename(url)),osp.join(dir, rename))
 
+def save_processed_data(data,dir_path,use_zip=False):
+    pre_path = "{}/preprocessed".format(dir_path)
+    ensure_dir(pre_path)
+    if use_zip:
+        with gzip.open("{}/preprocessed.pt.gz".format(pre_path), "wb") as f:
+            torch.save(data, f)
+    else:
+        torch.save(data,"{}/preprocessed.pt".format(pre_path))
+
+def load_processed_data(dir_path,use_zip=False):
+    pre_path = "{}/preprocessed".format(dir_path)
+    pre_file = "{}/preprocessed.pt.gz".format(pre_path) if use_zip else "{}/preprocessed.pt".format(pre_path)
+    if has_file(pre_file):
+        print("[{}] Loading preprocessed data from {}".format(datetime.datetime.now(), pre_file))
+        if use_zip:
+            with gzip.open(pre_file, "rb") as f:
+                data = torch.load(f, weights_only=False)
+        else:
+            data = torch.load(pre_file, weights_only=False)
+        print(datetime.datetime.now())
+        return data
+    return None
+
 def unit_Ha2meV(ha):
     return ha * 27211.386245981
 
 def unit_u2mu(a):
-    return a*1e3
+    return a * 1e3

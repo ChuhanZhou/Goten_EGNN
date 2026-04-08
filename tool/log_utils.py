@@ -1,4 +1,5 @@
 from configs.config import config as cfg
+from tool.data_loader import ensure_dir
 
 import datetime
 
@@ -24,6 +25,7 @@ def print_log(str_info):
     export_log_history()
 
 def export_log_history():
+    ensure_dir(cfg['log_path'])
     with open("{}/{}_{}.txt".format(cfg['log_path'],LogFileName,cfg["predict_label"]), "w", encoding="utf-8") as file:
         file.write(StrHistory)
 

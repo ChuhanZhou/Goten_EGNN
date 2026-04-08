@@ -53,6 +53,9 @@ def get_mean_std(prop_dict_list,prop_labels = None):
     return {l: (mean[i],std[i]) for i,l in enumerate(prop_labels)}
 
 def get_std_mat(mean_std_dict,prop_labels = None):
+    if prop_labels is "r2":
+        return 0,1
+
     mean_mat = []
     std_mat = []
 

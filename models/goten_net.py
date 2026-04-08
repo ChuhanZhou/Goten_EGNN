@@ -198,7 +198,7 @@ class HTR(nn.Module):
         self.w_vk = nn.ModuleList([nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=False) for _ in range(cfg["degree_max"])])
 
         # pre-norm is not in the paper, but network has high possibility of exploding (numerical overflow) after depth 4
-        self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"])
+        self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"],pre_norm=True)
         #self.mlp_w = nn.Linear(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"]) if cfg["edge_ref_dim"] != cfg["edge_dim"] else nn.Identity()
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
