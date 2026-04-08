@@ -1,4 +1,4 @@
-from tool.data_loader import DatasetLoader
+from tool.data_loader import DatasetLoader,has_file,ensure_dir
 
 import os
 from tqdm import tqdm
@@ -8,14 +8,17 @@ import torch
 from rdkit import Chem,RDLogger
 from torch_cluster import radius_graph
 import pandas as pd
+import json
 
-RDLogger.DisableLog('rdApp.warning')
-
-sdf_files = [
+data_url = "https://drive.google.com/drive/u/2/folders/1y-EyoDYMvWZwClc2uvXrM4_hQBtM85BI?usp=sharing"
+source_files = [
     "combined_mols_0_to_1000000.sdf",
     "combined_mols_1000000_to_2000000.sdf",
     "combined_mols_2000000_to_3000000.sdf",
     "combined_mols_3000000_to_3899647.sdf",
+    "properties.csv",
+    "random_split_inds.json",
+    "random_test_split_inds.json",
 ]
 
 class Loader(DatasetLoader):
@@ -23,34 +26,41 @@ class Loader(DatasetLoader):
         super().__init__()
 
     def load_unsorted_data(self, folder_path, type_list, cutoff=None, atom_mass_dict=None, use_tqdm=True):
-        pre_file = "{}/preprocessed/preprocessed_data.pt".format(folder_path)
-        if self.has_file(pre_file):
-            print("[{}] Loading preprocessed data from {}".format(datetime.datetime.now(),pre_file))
-            dataset = torch.load(pre_file, weights_only=False)
-            return dataset
+        raw_path = "{}/raw".format(folder_path)
+        ensure_dir(raw_path)
+        for file in source_files:
+            if not has_file("{}/{}".format(raw_path, file)):
+                raise FileNotFoundError("Cannot find {} in {}. Please download source files from {}".format(file,raw_path,data_url))
+
+        prop_list = self.load_from_csv("{}/{}".format(raw_path,source_files[4]),use_tqdm=use_tqdm)
 
         dataset = []
         atom_set = set()
 
-        prop_list = self.load_from_csv("{}/raw/properties.csv".format(folder_path))
-
-        for sdf_name in sdf_files:
-            file_path = "{}/raw/{}".format(folder_path, sdf_name)
-            sub_dataset, sub_atom_set = self.load_from_sdf(file_path, prop_list, type_list, cutoff, atom_mass_dict, use_tqdm, len(dataset))
+        for sdf_name in source_files[0:4]:
+            file_path = "{}/{}".format(raw_path, sdf_name)
+            sub_dataset, sub_atom_set = self.load_from_sdf(file_path, prop_list, type_list, cutoff, atom_mass_dict, use_tqdm=use_tqdm, init_index=len(dataset))
             dataset.extend(sub_dataset)
             atom_set.update(sub_atom_set)
 
         print("Atom types: {}".format(atom_set))
-        torch.save(dataset,"{}/preprocessed/preprocessed_data.pt".format(folder_path))
         return dataset
 
-    def load_from_csv(self,csv_file_path):
-        print("[{}] Loading prop data from {}".format(datetime.datetime.now(), csv_file_path))
+    def load_from_csv(self,csv_file_path,use_tqdm=True):
+
         df = pd.read_csv(csv_file_path)
+
+        start_info = "[{}] Loading prop data from {}".format(datetime.datetime.now(), csv_file_path)
+        if use_tqdm:
+            iterator = tqdm(range(df.shape[0]), desc=start_info) if use_tqdm else range(df.shape[0])
+        else:
+            print(start_info)
+            iterator = range(df.shape[0])
+
         id_data = df["cid"].values
-        dipole_data = list(df[["dipole x","dipole y","dipole z"]].values)
-        homo_data = df["homo"].values
-        lumo_data = df["homo"].values
+        dipole_data = list(df[["dipole x","dipole y","dipole z"]].values.astype(np.float32))
+        homo_data = df["homo"].values.astype(np.float32)
+        lumo_data = df["lumo"].values.astype(np.float32)
 
         prop_list = [{
             "id": id_data[i],
@@ -59,60 +69,18 @@ class Loader(DatasetLoader):
                 "mu_3d": dipole_data[i],
                 "homo": homo_data[i],
                 "lumo": lumo_data[i],
-            }} for i in range(df.shape[0])]
+            }} for i in iterator]
         return prop_list
 
-    def load_from_sdf(self,sdf_file_path, prop_list, type_list, cutoff=None, atom_mass_dict=None, use_tqdm=True, init_index=0):
-        dataset = []
-        atom_set = set()
+    def load_subsets(self, folder_path, use_small=True):
+        raw_path = "{}/raw".format(folder_path)
+        full_set_file = "{}/{}".format(raw_path,source_files[5])
+        small_set_file = "{}/{}".format(raw_path,source_files[6])
 
-        if not self.has_file(sdf_file_path):
-            print("Cannot find {}".format(sdf_file_path))
-            return dataset,atom_set
-
-        supplier = Chem.SDMolSupplier(sdf_file_path, sanitize=False)
-
-        if use_tqdm:
-            progress_bar = tqdm(desc="[{}] Loading data from {}".format(datetime.datetime.now(),sdf_file_path), total=len(supplier))
+        if use_small:
+            with open(small_set_file, 'r', encoding='utf-8') as f:
+                subsets = json.load(f)
         else:
-            print("[{}] Loading data from {}".format(datetime.datetime.now(),sdf_file_path))
-
-        for i,mol in enumerate(supplier):
-            if mol is None:
-                continue
-
-            if use_tqdm:
-                progress_bar.update()
-
-            index = init_index+i
-            atoms_type = []
-            atoms_xyz = []
-
-            conf = mol.GetConformer()
-
-            for atom in mol.GetAtoms():
-                type = atom.GetSymbol()
-                pos = conf.GetAtomPosition(atom.GetIdx())
-
-                atom_set.add(type)
-                atoms_type.append(type_list.index(type))
-                atoms_xyz.append([pos.x, pos.y, pos.z])
-
-            atoms_xyz = torch.tensor(np.array(atoms_xyz), dtype=torch.float32)
-
-            prop = prop_list[index]["prop"]
-
-            edge_index = radius_graph(atoms_xyz, r=cutoff, loop=False, max_num_neighbors=32) #[j,i]
-            ij_pos_vecs = atoms_xyz[edge_index[1]] - atoms_xyz[edge_index[0]]
-
-            mass_center = None
-            if atom_mass_dict is not None:
-                masses = torch.tensor(np.array([atom_mass_dict[type_list[i]] for i in atoms_type]).reshape(-1, 1), dtype=torch.float32)
-                mass_center = (masses * atoms_xyz).sum(dim=0) / masses.sum()
-
-            atoms_type = torch.tensor(atoms_type, dtype=torch.int).unsqueeze(1)
-            dataset.append([prop_list[index]["id"], atoms_xyz, mass_center, atoms_type, ij_pos_vecs, edge_index, prop])
-
-        if use_tqdm:
-            progress_bar.close()
-        return dataset, atom_set
+            with open(full_set_file, 'r', encoding='utf-8') as f:
+                subsets = json.load(f)
+        return subsets["train"], subsets["valid"], subsets["test"]
