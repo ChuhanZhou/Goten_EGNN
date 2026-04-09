@@ -162,6 +162,10 @@ if __name__ == '__main__':
 
     start_epoch = len(val_mae_history)
     for epoch in range(start_epoch,epoch_num):
+        # early stop
+        if cfg["stop_patience"] is not None and not_best_step >= cfg["stop_patience"]:
+            break
+
         model.train()
         train_dataloader = get_epoch_dataloader(base_seed=seed,epoch=epoch,dataset=train_set,batch_size=batch_size,collate_fn=collate_fn)
 
@@ -172,10 +176,6 @@ if __name__ == '__main__':
         total_loss = 0
         avg_loss = None
         for i, data in enumerate(train_dataloader):
-            # early stop
-            if cfg["stop_patience"] is not None and not_best_step >= cfg["stop_patience"]:
-                break
-
             [atoms_pos, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
 
             out = model(atoms_pos.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
