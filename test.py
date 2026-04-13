@@ -70,7 +70,7 @@ def test(model,dataset,title="testing",use_tqdm=True):
             out_list.append(out.cpu().detach().numpy())
             target_list.append(prop_value.cpu().numpy())
 
-        total_loss += loss.item() * len(set(atoms_batch_index))
+        total_loss += loss.item() * torch.unique(atoms_batch_index).numel()
 
         if use_tqdm:
             progress_bar.update()
@@ -85,7 +85,10 @@ def test(model,dataset,title="testing",use_tqdm=True):
         for i in range(len(target_list)):
             sub_outs = np.concatenate(out_list[i], axis=0)
             sub_targets = np.concatenate(target_list[i], axis=0)
-            sub_mae = np.sum(np.abs(sub_targets - sub_outs))/len(dataset)
+            if i==0:
+                sub_mae = np.mean(np.abs(sub_targets - sub_outs))
+            else:
+                sub_mae = np.sum(np.linalg.norm(sub_targets - sub_outs, axis=1)) / len(dataset)
             sub_out_labels = np.concatenate([sub_outs,sub_targets],axis=1)
             out_labels.append(sub_out_labels)
             mae.append(sub_mae)
