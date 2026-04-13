@@ -32,40 +32,75 @@ def test(model,dataset,title="testing",use_tqdm=True):
     total_loss = 0
     out_list = []
     target_list = []
-    with torch.inference_mode():
-        for i, data in enumerate(test_dataloader):
-            [atoms_pos, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
+    has_sub_prop = False
+    for i, data in enumerate(test_dataloader):
+        [atoms_pos, atoms_type, edge_index, prop_value, atoms_batch_index] = data
 
-            out = model(atoms_pos.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
+        out = model(atoms_pos.to(device), atoms_type.to(device), edge_index.to(device), atoms_batch_index.to(device))
 
-            #atom_norm = scatter_sum(torch.ones([len(atoms_batch_index), 1], device=out.device),atoms_batch_index.to(device), dim=0)
+        if isinstance(prop_value, list): # for rMD17 and MD22
+            has_sub_prop = True
+            loss = 0
+            for s_i,sub_prop_value in enumerate(prop_value):
+                std_sub_prop_value = sub_prop_value.to(device)
+                if s_i == 0:
+                    std_sub_prop_value = model.standardize(sub_prop_value.to(device))
+                sub_loss = cfg["loss_func"](out[s_i], std_sub_prop_value)
+                loss+=cfg["loss_weights"][s_i]*sub_loss
+
+                if s_i == 0:
+                    sub_out = model.destandardize(out[s_i])
+                    sub_target = sub_prop_value
+                else:
+                    sub_out = out[s_i]
+                    sub_target = sub_prop_value
+                    #sub_out = torch.norm(out[s_i],dim=-1,keepdim=True)
+                    #sub_target = torch.norm(sub_prop_value,dim=-1,keepdim=True)
+
+                if len(out_list) <= s_i:
+                    out_list.append([])
+                    target_list.append([])
+                out_list[s_i].append(sub_out.cpu().detach().numpy())
+                target_list[s_i].append(sub_target.cpu().numpy())
+        else:
             std_prop_value = model.standardize(prop_value.to(device))
             loss = cfg["loss_func"](out, std_prop_value)
-
-            total_loss += loss.item() * out.shape[0]
 
             out = model.destandardize(out)
             out_list.append(out.cpu().detach().numpy())
             target_list.append(prop_value.cpu().numpy())
 
-            if use_tqdm:
-                progress_bar.update()
+        total_loss += loss.item() * len(set(atoms_batch_index))
+
+        if use_tqdm:
+            progress_bar.update()
 
     if use_tqdm:
         progress_bar.close()
     avg_loss = total_loss / len(dataset)
 
-    outs = np.concatenate(out_list,axis=0)
-    targets = np.concatenate(target_list,axis=0)
-    avg_mae = np.mean(np.abs(targets - outs))
+    if has_sub_prop:
+        out_labels = []
+        mae = []
+        for i in range(len(target_list)):
+            sub_outs = np.concatenate(out_list[i], axis=0)
+            sub_targets = np.concatenate(target_list[i], axis=0)
+            sub_mae = np.sum(np.abs(sub_targets - sub_outs))/len(dataset)
+            sub_out_labels = np.concatenate([sub_outs,sub_targets],axis=1)
+            out_labels.append(sub_out_labels)
+            mae.append(sub_mae)
+    else:
+        outs = np.concatenate(out_list,axis=0)
+        targets = np.concatenate(target_list,axis=0)
+        mae = np.mean(np.abs(targets - outs))
+        out_labels = np.concatenate([outs,targets],axis=1)
 
-    out_labels = np.concatenate([outs,targets],axis=1)
-    return avg_loss,avg_mae,out_labels
+    return avg_loss,mae,out_labels
 
-MODEL_TARGET_LIST = ["alpha","gap","homo","lumo","mu","mu_3d","cv","g","h","r2","u","u0","zpve","f","e"]
+MODEL_TARGET_LIST = ["alpha","gap","homo","lumo","mu","mu_3d","cv","g","h","r2","u","u0","zpve","e&f"]
 
 if __name__ == '__main__':
-    title_label = "qm9_S_t110000_s1"
+    title_label = "qm9_B_t110000_s0"
     test_results = {}
     test_stds = []
     test_logs = []
@@ -79,14 +114,18 @@ if __name__ == '__main__':
             continue
 
         ckpt = torch.load(ckpt_path, weights_only=False)
-        cfg['predict_label'] = ckpt["label"]
 
         if dataset is None:
             update_model_cfg(ckpt["dataset"]["version"])
-            dataset = cfg["data_loader"].load(cfg["dataset_path"], cfg['atom_types'], cutoff=cfg["cutoff_radius"],atom_mass_dict=load_atom_mass())
+            dataset = cfg["data_loader"].load(cfg["dataset_path"], cfg['atom_types'], cutoff=cfg["cutoff_radius"],atom_mass_dict=load_atom_mass(),preprocess=cfg["preprocess"])
+            if cfg["mol_type"] is not None:
+                dataset = dataset[cfg["mol_type"]]
+
             train_set = Subset(dataset, ckpt["dataset"]["train"])
             val_set = Subset(dataset, ckpt["dataset"]["valid"])
             test_set = Subset(dataset, ckpt["dataset"]["test"])
+
+        cfg['predict_label'] = ckpt["label"]
 
         model = GotenNet()
         model.load_state_dict(ckpt["model_ckpt"], strict=True)

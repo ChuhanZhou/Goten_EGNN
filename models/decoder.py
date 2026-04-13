@@ -3,6 +3,7 @@ from configs.config import config as cfg
 import torch
 import torch.nn as nn
 from torch_geometric.utils import scatter
+from torch.autograd import grad
 from abc import ABC, abstractmethod
 import math
 
@@ -63,12 +64,12 @@ class ShiftedSoftplus(nn.Module):
     def forward(self,x):
         return self.softplus(x) - self.shift
 
-def get_decoder(label,standardize,destandardize):
+def get_decoder(label,mean=0,std=1):
     match (label):
         case "mu": # dipole moment
-            return DipoleMomentDecoder(cfg["node_dim"],out_features=1,standardize=standardize,destandardize=destandardize)
+            return DipoleMomentDecoder(cfg["node_dim"],out_features=1,mean=mean,std=std)
         case "mu_3d":  # dipole moment
-            return DipoleMomentDecoder(cfg["node_dim"],out_features=3,standardize=standardize,destandardize=destandardize)
+            return DipoleMomentDecoder(cfg["node_dim"],out_features=3,mean=mean,std=std)
         case "alpha": # isotropic polarizability
             return ExtensiveScalerDecoder(cfg["node_dim"])
         case "homo":
@@ -78,7 +79,7 @@ def get_decoder(label,standardize,destandardize):
         case "gap": # gap(lumo-homo)
             raise NotImplementedError("Don't know how to decode: {}".format(label))
         case "r2": # electronic spatial extent
-            return ElectronicSpatialExtentDecoder(cfg["node_dim"],standardize=standardize,destandardize=destandardize)
+            return ElectronicSpatialExtentDecoder(cfg["node_dim"],mean=mean,std=std)
         case "zpve": # zero point vibrational energy
             return IntensiveScalerDecoder(cfg["node_dim"])
         case "u0": # internal energy at 0K
@@ -91,16 +92,26 @@ def get_decoder(label,standardize,destandardize):
             return ExtensiveScalerDecoder(cfg["node_dim"])
         case "cv": # heat capacity at 298.15K
             return ExtensiveScalerDecoder(cfg["node_dim"])
+        case "e&f":
+            return EnergyForceDecoder(cfg["node_dim"],mean=mean,std=std)
         case other:
             raise NotImplementedError("Don't know how to decode: {}".format(label))
 
 class GraphDecoder(nn.Module):
-    def __init__(self):
+    def __init__(self,mean=0,std=1):
         super().__init__()
+        self.mean = mean
+        self.std = std
 
     @abstractmethod
     def forward(self, pos, scaler, vector, batch_index):
         pass
+
+    def standardize(self,v):
+        return (v - self.mean) / self.std
+
+    def destandardize(self,v):
+        return v * self.std + self.mean
 
 class IntensiveScalerDecoder(GraphDecoder):
     def __init__(self,in_features,hidden_dim=None):
@@ -151,8 +162,8 @@ class ScalerDecoder(GraphDecoder):
         return out
 
 class DipoleMomentDecoder(GraphDecoder):
-    def __init__(self,in_features,hidden_dim=None,out_features=1,standardize=None,destandardize=None):
-        super().__init__()
+    def __init__(self,in_features,hidden_dim=None,out_features=1,mean=0,std=1):
+        super().__init__(mean, std)
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
@@ -161,17 +172,13 @@ class DipoleMomentDecoder(GraphDecoder):
         self.gate_1 = GateV2(in_features=hidden_dim, out_features=1)
         self.out_features = out_features
 
-        self.standardize = standardize
-        self.destandardize = destandardize
-
     def forward(self, pos, scaler, vector, batch_index):
         q_i, mu_i = self.gate_0(scaler,vector)
         q_i = self.act_fn(q_i)
         q_i, mu_i = self.gate_1(q_i, mu_i)
         mu_i = mu_i.squeeze()
 
-        if self.destandardize is not None:
-            q_i = self.destandardize(q_i)
+        q_i = self.destandardize(q_i)
 
         node_mu = mu_i + q_i * pos
         graph_mu = scatter(node_mu, batch_index, dim=0, reduce="sum")
@@ -179,8 +186,7 @@ class DipoleMomentDecoder(GraphDecoder):
         if self.out_features == 1:
             out = torch.norm(out, dim=-1, keepdim=True)
 
-        if self.standardize is not None:
-            out = self.standardize(out)
+        out = self.standardize(out)
         return out
 
 class IsotropicPolarizabilityDecoder(GraphDecoder):
@@ -205,15 +211,12 @@ class IsotropicPolarizabilityDecoder(GraphDecoder):
         return out
 
 class ElectronicSpatialExtentDecoder(GraphDecoder):
-    def __init__(self,in_features,hidden_dim=None,standardize=None,destandardize=None):
-        super().__init__()
+    def __init__(self,in_features,hidden_dim=None,mean=0,std=1):
+        super().__init__(mean, std)
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
         self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim,act_fn=ShiftedSoftplus())
-
-        self.standardize = standardize
-        self.destandardize = destandardize
 
     def forward(self, pos, scaler, vector, batch_index):
         q_i = self.decoder_q(scaler)
@@ -222,7 +225,34 @@ class ElectronicSpatialExtentDecoder(GraphDecoder):
 
         out = scatter(q_i * r2_i, batch_index, dim=0, reduce="sum")
 
-        if self.standardize is not None:
-            out = self.standardize(out)
+        out = self.standardize(out)
 
         return out
+
+class EnergyForceDecoder(GraphDecoder):
+    def __init__(self,in_features,hidden_dim=None,mean=0,std=1):
+        super().__init__(mean, std)
+        if hidden_dim is None:
+            hidden_dim = in_features // 2
+
+        #self.decoder = ExtensiveScalerDecoder(in_features=in_features,hidden_dim=hidden_dim)
+        self.decoder = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim)
+
+    def forward(self, pos, scaler, vector, batch_index):
+        #energy_out = self.decoder(pos, scaler, vector, batch_index)
+        node_scaler = self.decoder(scaler)
+        node_scaler = node_scaler * self.std
+        energy = scatter(node_scaler, batch_index, dim=0, reduce="sum")
+
+        energy = energy + self.mean
+        energy_out = self.standardize(energy)
+
+        force_out = -grad(
+            outputs=energy,
+            inputs=[pos],
+            grad_outputs=torch.ones_like(energy),
+            create_graph=True,
+            retain_graph=True,
+        )[0]
+        #force_out = scatter(force_out, batch_index, dim=0, reduce="sum")
+        return [energy_out, force_out]

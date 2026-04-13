@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch_cluster import radius_graph
 from torch_geometric.datasets import QM9
+from torch.utils.data import random_split
 import pandas as pd
 
 # Atom reference energy
@@ -66,7 +67,7 @@ class Loader(DatasetLoader):
         raw_path = "{}/raw".format(folder_path)
         for file in source_files:
             if not has_file("{}/{}".format(raw_path, file)):
-                download(QM9.raw_url,raw_path,extract=True)
+                download(QM9.raw_url,raw_path,extract="zip")
                 download(QM9.raw_url2,raw_path,rename="uncharacterized.txt")
 
         prop_list = self.load_from_csv("{}/{}".format(raw_path,source_files[1]),use_tqdm=use_tqdm)
@@ -79,6 +80,10 @@ class Loader(DatasetLoader):
 
         print("Atom types: {}".format(atom_set))
         return dataset
+
+    def split_data(self, dataset, split_nums, seed, folder_path, key):
+        split_g = torch.Generator().manual_seed(seed)
+        return random_split(dataset, split_nums, generator=split_g)[0:3]
 
     def load_from_csv(self,csv_file_path,use_tqdm=True):
 

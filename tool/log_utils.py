@@ -26,11 +26,14 @@ def print_log(str_info):
 
 def export_log_history():
     ensure_dir(cfg['log_path'])
-    with open("{}/{}_{}.txt".format(cfg['log_path'],LogFileName,cfg["predict_label"]), "w", encoding="utf-8") as file:
+    sub_label = cfg["predict_label"] if cfg["mol_type"] is None else cfg["mol_type"]
+    with open("{}/{}_{}.txt".format(cfg['log_path'],LogFileName,sub_label), "w", encoding="utf-8") as file:
         file.write(StrHistory)
 
 def load_log(file_name):
-    with open("{}/{}_{}.txt".format(cfg['log_path'],file_name,cfg["predict_label"]), 'r', encoding='utf-8') as file:
+    sub_label = cfg["predict_label"] if cfg["mol_type"] is None else cfg["mol_type"]
+
+    with open("{}/{}_{}.txt".format(cfg['log_path'],file_name,sub_label), 'r', encoding='utf-8') as file:
         lines = file.readlines()
 
     for line in lines:

@@ -36,12 +36,15 @@ if __name__ == '__main__':
     parser.add_argument('--title', help="model title", type=str, default=None)
     parser.add_argument('--seed', help="random seed", type=int, default=None)
     parser.add_argument('--label', help="target label", type=str, default=None)
+    parser.add_argument('--mol', help="target molecule", type=str, default=None)
     parser.add_argument('--epoch', help="maximum epoch number", type=int, default=None)
     parser.add_argument('--batch', help="batch size", type=int, default=None)
     parser.add_argument('--tqdm', help="print progress bar", type=str, default="True")
+    parser.add_argument('--ckpt_def', help="continue on default ckpt", type=str, default="False")
     parser.add_argument('--ver', help="model type", type=str, default="qm9_s")
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
+    args.ckpt_def = args.ckpt_def.lower() == "true"
 
     update_model_cfg(args.ver)
     if args.title is not None:
@@ -54,6 +57,14 @@ if __name__ == '__main__':
         cfg['batch_size'] = args.batch
     if args.label is not None:
         cfg['predict_label'] = args.label
+    if args.mol is not None:
+        cfg['mol_type'] = args.mol
+
+    if args.ckpt is None and args.ckpt_def:
+        if cfg['mol_type'] is None:
+            args.ckpt = "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], cfg["train_size"], cfg['seed'], cfg["predict_label"])
+        else:
+            args.ckpt = "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], cfg["train_size"], cfg['seed'], cfg["mol_type"])
 
     if args.ckpt and not os.path.isfile(args.ckpt):
         print_log("Can't find ckpt at [{}]".format(args.ckpt))
@@ -70,7 +81,9 @@ if __name__ == '__main__':
     else:
         ckpt = None
 
-    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],cutoff=cfg["cutoff_radius"],atom_mass_dict=load_atom_mass(),use_tqdm=args.tqdm)
+    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],cutoff=cfg["cutoff_radius"],atom_mass_dict=load_atom_mass(),use_tqdm=args.tqdm,preprocess=cfg["preprocess"])
+    if cfg["mol_type"] is not None:
+        dataset = dataset[cfg["mol_type"]]
 
     device = cfg['device']
     epoch_num = cfg['epochs']
@@ -94,23 +107,24 @@ if __name__ == '__main__':
         train_set = Subset(dataset, ckpt["dataset"]["train"])
         val_set = Subset(dataset, ckpt["dataset"]["valid"])
         test_set = Subset(dataset, ckpt["dataset"]["test"])
-    elif cfg["dataset_random_split"]:
+    else:
         if cfg["train_size"]>=1 and cfg["val_size"]>=1 and cfg["test_size"]>=1:
             data_drop_len = len(dataset) - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
+        elif -1 in [cfg["train_size"],cfg["val_size"],cfg["test_size"]]:
+            data_drop_len=0
+            split_keys = ["train_size","val_size","test_size"]
+            other_num = len(dataset)
+            other_k = None
+            for k in split_keys:
+                if cfg[k]>=0:
+                    other_num -= cfg[k]
+                else:
+                    other_k = k
+            cfg[other_k] = other_num
         else:
             data_drop_len = 1.0 - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
 
-        split_g = torch.Generator().manual_seed(seed)
-
-        if data_drop_len!=0:
-            train_set, val_set, test_set, _ = random_split(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len],generator=split_g)
-        else:
-            train_set, val_set, test_set = random_split(dataset, [cfg["train_size"], cfg["val_size"], cfg["test_size"]],generator=split_g)
-    elif cfg["dataset_set_split"]:
-        train_index_list,val_index_list,test_index_list = cfg["data_loader"].load_subsets(cfg["dataset_path"],use_small=False)
-        train_set = Subset(dataset, train_index_list)
-        val_set = Subset(dataset, val_index_list)
-        test_set = Subset(dataset, test_index_list)
+        train_set, val_set, test_set = cfg["data_loader"].split_data(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len],seed,cfg["dataset_path"],cfg["split_key"])
 
     prop_mean_std = get_mean_std([data[-1] for data in train_set],[cfg["predict_label"]])
     mean, std = prop_mean_std[cfg["predict_label"]]
@@ -160,8 +174,13 @@ if __name__ == '__main__':
             else:
                 not_best_step += 1
 
+    sub_label = cfg["predict_label"] if  cfg["mol_type"] is None else cfg["mol_type"]
+    ckpt_path = "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], len(train_set), seed, sub_label)
+    best_ckpt_path = "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, sub_label)
+
     start_epoch = len(val_mae_history)
-    for epoch in range(start_epoch,epoch_num):
+    has_sub_prop = False
+    for epoch in range(start_epoch, epoch_num):
         # early stop
         if cfg["stop_patience"] is not None and not_best_step >= cfg["stop_patience"]:
             break
@@ -176,12 +195,22 @@ if __name__ == '__main__':
         total_loss = 0
         avg_loss = None
         for i, data in enumerate(train_dataloader):
-            [atoms_pos, atoms_type, ij_vecs, edge_index, prop_value, atoms_batch_index] = data
+            [atoms_pos, atoms_type, edge_index, prop_value, atoms_batch_index] = data
 
-            out = model(atoms_pos.to(device), atoms_type.to(device), ij_vecs.to(device), edge_index.to(device), atoms_batch_index.to(device))
+            out = model(atoms_pos.to(device), atoms_type.to(device), edge_index.to(device), atoms_batch_index.to(device))
 
-            std_prop_value = model.standardize(prop_value.to(device))
-            loss = cfg["loss_func"](out,std_prop_value)
+            if isinstance(prop_value, list): # for rMD17 and MD22
+                has_sub_prop = True
+                loss = 0
+                for s_i,sub_prop_value in enumerate(prop_value):
+                    sub_prop_value = sub_prop_value.to(device)
+                    if s_i == 0:
+                        sub_prop_value = model.standardize(sub_prop_value)
+                    sub_loss = cfg["loss_func"](out[s_i], sub_prop_value)
+                    loss+=cfg["loss_weights"][s_i]*sub_loss
+            else: # for QM9 and molecule3d
+                std_prop_value = model.standardize(prop_value.to(device))
+                loss = cfg["loss_func"](out,std_prop_value)
 
             loss.backward()
             if cfg["grad_clip"]:
@@ -207,15 +236,30 @@ if __name__ == '__main__':
             progress_bar.close()
 
         val_loss, val_mae, _ = test(model, val_set,"val_set",args.tqdm)
-        val_mae_history.append(val_mae)
-        if current_step > cfg["warmup"]:
-            scheduler_plateau.step(val_mae)
 
-        epoch_result = "[epoch]:{} [lr]:{:.3e} [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):{:.2f}".format(epoch, lr, avg_loss, val_loss, cfg["predict_label"], val_mae)
+        step_mae = np.mean(np.array(val_mae))
+        val_mae_history.append(step_mae)
+        if current_step > cfg["warmup"]:
+            scheduler_plateau.step(step_mae)
+
+        epoch_result = "[epoch]:{} [lr]:{:.3e} [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):".format(epoch, lr, avg_loss, val_loss, cfg["predict_label"])
+        val_results = []
+        if has_sub_prop:
+            for sub_mae in val_mae:
+                val_results.append("{:.4f}".format(sub_mae))
+        else:
+            val_results.append("{:.2f}".format(val_mae))
+        epoch_result += " ".join(val_results)
 
         if cfg["test_in_train"]:
             _, test_mae, _ = test(model, test_set, "test_set", args.tqdm)
-            epoch_result += " [{:.2f}]".format(test_mae)
+            test_results = []
+            if has_sub_prop:
+                for sub_mae in test_mae:
+                    test_results.append("{:.4f}".format(sub_mae))
+            else:
+                test_results.append("{:.2f}".format(test_mae))
+            epoch_result += " [{}]".format(" ".join(test_results))
 
         print_log(epoch_result)
 
@@ -232,18 +276,24 @@ if __name__ == '__main__':
             "log": LogFileName,
             "val_history":val_mae_history,
         }
-        torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
 
-        if min_val_mae > val_mae:
-            min_val_mae = val_mae
-            torch.save(ckpt, "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"]))
+        torch.save(ckpt, ckpt_path)
+
+        if min_val_mae > step_mae:
+            min_val_mae = step_mae
+            torch.save(ckpt, best_ckpt_path)
             not_best_step = 0
         else:
             not_best_step += 1
 
-    best_ckpt_path = "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, cfg["predict_label"])
     best_ckpt = torch.load(best_ckpt_path, weights_only=False)["model_ckpt"]
     model.load_state_dict(best_ckpt, strict=True)
     _, test_mae,_ = test(model, test_set,use_tqdm=args.tqdm)
-    test_result = "[test_best_validation] [MAE]: {:.2f}".format(test_mae)
-    print_log(test_result)
+    test_results = []
+    if has_sub_prop:
+        for sub_mae in test_mae:
+            test_results.append("{:.4f}".format(sub_mae))
+    else:
+        test_results.append("{:.2f}".format(test_mae))
+    train_result = "[test_best_validation] [MAE]: {}".format(" ".join(test_results))
+    print_log(train_result)

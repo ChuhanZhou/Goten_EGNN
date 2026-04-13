@@ -9,8 +9,8 @@ config = {
     'train_size':110000,
     'val_size':10000,
     'test_size':10831,
-    'dataset_random_split':True,
-    'dataset_set_split':False,
+    'preprocess': True,
+    'test_in_train':True,
 
     'atom_types': ['H', 'C', 'N', 'O', 'F'],
 

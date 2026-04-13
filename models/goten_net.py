@@ -30,10 +30,16 @@ class GotenNet(nn.Module):
             self.gata_list.append(GATA(init_X=i==0))
             self.eqff_list.append(EQFF())
 
-        self.decoder = get_decoder(out_label,self.standardize,self.destandardize)
+        self.decoder = get_decoder(out_label,self.mean,self.std)
+        self.out_label = out_label
         self.apply(init_parameters)
 
-    def forward(self, atoms_pos, x_n, x_e, edge_index,batch_index):
+    def forward(self, atoms_pos, x_n, edge_index,batch_index):
+        n_j, n_i = edge_index
+
+        if self.out_label == "e&f":
+            atoms_pos.requires_grad_(True)
+        x_e = atoms_pos[n_i] - atoms_pos[n_j]
         r_ij,h,t_ij,X = self.embedding(x_n,x_e,edge_index)
 
         for i in range(cfg["layer_num"]):
@@ -198,7 +204,7 @@ class HTR(nn.Module):
         self.w_vk = nn.ModuleList([nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=False) for _ in range(cfg["degree_max"])])
 
         # pre-norm is not in the paper, but network has high possibility of exploding (numerical overflow) after depth 4
-        self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"],pre_norm=True)
+        self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"],pre_norm=False)
         #self.mlp_w = nn.Linear(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"]) if cfg["edge_ref_dim"] != cfg["edge_dim"] else nn.Identity()
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
@@ -206,18 +212,22 @@ class HTR(nn.Module):
 
     def forward(self, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
-        X_ls =  torch.cat(X, dim=1)
+        X_ls =  torch.cat(X, dim=1) #[N,8,256]
 
-        eq_i = self.w_vq(X_ls)[n_i]
-        ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j]
+        eq_i = self.w_vq(X_ls)[n_i] #[E,8,256]
+        ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j] #[E,8,256]
 
         # vector rejection is not mentioned in the paper, but is a part of official implementation
-        #eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
-        #ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
+        eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
+        ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
 
-        w_ij = (eq_i * ek_j).sum(dim=1)
+        w_ij = (eq_i * ek_j).sum(dim=1) #[E,256]
 
-        dt_ij = self.mlp_w(w_ij) * self.act_fn(self.mlp_t(t_ij))
+        #l_agg_idx = torch.repeat_interleave(torch.tensor(list(range(cfg["degree_max"])),device=edge_index.device), torch.tensor(cfg["high_degree_sizes"],device=edge_index.device))
+        #w_ij = scatter(eq_i * ek_j, l_agg_idx, dim=1,reduce="sum")
+        #w_ij = w_ij.mean(dim=1)
+
+        dt_ij = self.mlp_w(w_ij) * self.act_fn(self.mlp_t(t_ij)) #[E,256]
         return dt_ij
 
     @staticmethod

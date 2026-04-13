@@ -5,8 +5,7 @@ from tqdm import tqdm
 import datetime
 import numpy as np
 import torch
-from rdkit import Chem,RDLogger
-from torch_cluster import radius_graph
+from torch.utils.data import Subset
 import pandas as pd
 import json
 
@@ -19,6 +18,8 @@ source_files = [
     "properties.csv",
     "random_split_inds.json",
     "random_test_split_inds.json",
+    "scaffold_split_inds.json",
+    "scaffold_test_split_inds.json",
 ]
 
 class Loader(DatasetLoader):
@@ -72,15 +73,21 @@ class Loader(DatasetLoader):
             }} for i in iterator]
         return prop_list
 
-    def load_subsets(self, folder_path, use_small=True):
+    def split_data(self, dataset, split_nums, seed, folder_path, key):
+        # key in ["random","scaffold"]
         raw_path = "{}/raw".format(folder_path)
-        full_set_file = "{}/{}".format(raw_path,source_files[5])
-        small_set_file = "{}/{}".format(raw_path,source_files[6])
+        match key:
+            case "random":
+                set_file = "{}/{}".format(raw_path, source_files[5])
+            case "scaffold":
+                set_file = "{}/{}".format(raw_path, source_files[7])
+            case other:
+                raise NotImplementedError("Don't know how to split data based on [{}]".format(key))
 
-        if use_small:
-            with open(small_set_file, 'r', encoding='utf-8') as f:
-                subsets = json.load(f)
-        else:
-            with open(full_set_file, 'r', encoding='utf-8') as f:
-                subsets = json.load(f)
-        return subsets["train"], subsets["valid"], subsets["test"]
+        with open(set_file, 'r', encoding='utf-8') as f:
+            subsets = json.load(f)
+
+        train_set = Subset(dataset, subsets["train"])
+        val_set = Subset(dataset, subsets["valid"])
+        test_set = Subset(dataset, subsets["test"])
+        return train_set, val_set, test_set

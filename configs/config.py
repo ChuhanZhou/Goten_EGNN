@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from configs import qm9_cfg,qm9_s_cfg,molecule3d_cfg
+from configs import qm9_cfg,qm9_s_cfg,molecule3d_cfg,rmd17_cfg
 
 config = {
     'title': None,
@@ -11,11 +11,11 @@ config = {
     'log_path': "./log",
     'device': torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
     'seed': 0,
+    'preprocess': True,
     'train_size':0.8,
     'val_size':0.1,
     'test_size':0.1,
-    'dataset_random_split':True,
-    'dataset_set_split':False,
+    'split_key':None,
     'test_in_train':True,
 
     'model_type':None,
@@ -40,6 +40,7 @@ config = {
     #'vec_rej': False,
 
     'predict_label': None,
+    'mol_type': None,
 }
 
 config['high_degree_sizes'] = [2*i+1 for i in range(1,config['degree_max']+1)]
@@ -53,5 +54,7 @@ def update_model_cfg(cfg_type):
             config.update(qm9_s_cfg.config)
         case 'molecule3d':
             config.update(molecule3d_cfg.config)
+        case 'rmd17':
+            config.update(rmd17_cfg.config)
         case _:
             print('unknown model config: {}'.format(cfg_type))

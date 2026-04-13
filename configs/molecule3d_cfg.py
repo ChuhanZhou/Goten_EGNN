@@ -4,11 +4,13 @@ import torch.nn as nn
 
 #download from https://drive.google.com/uc?id=1C_KRf8mX-gxny7kL9ACNCEV4ceu_fUGy
 config = {
-    'title':"molecule3d_B",
+    'title':"molecule3d_B_random",
     'dataset_path':"./dataset/molecule3d",
     'data_loader':molecule3d_loader.Loader(),
-    'dataset_random_split':False,
-    'dataset_set_split':True,
+    'split_key':"random",
+    'preprocess': False,
+
+    'test_in_train':False,
 
     'atom_types': ['K', 'Kr', 'Mg', 'B', 'V', 'Cu', 'Ni', 'Ge', 'Mn', 'C', 'He', 'Na', 'Cl', 'Br', 'Si', 'Se', 'S', 'Co', 'Ca', 'H', 'Be', 'As', 'Ti', 'O', 'N', 'Al', 'P', 'Ga', 'Cr', 'F', 'Ar', 'Sc', 'Zn', 'Li', 'Ne', 'Fe'],
 

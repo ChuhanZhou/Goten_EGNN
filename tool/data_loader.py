@@ -10,28 +10,35 @@ from tqdm import tqdm
 import datetime
 from torch_cluster import radius_graph
 import gzip
+import tarfile
 
 RDLogger.DisableLog('rdApp.warning')
 
 class DatasetLoader(ABC):
-    def load(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True):
-        dataset = load_processed_data(folder_path)
-        if dataset is not None:
-            return dataset
+    def load(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True,preprocess=False):
+        if preprocess:
+            dataset = load_processed_data(folder_path)
+            if dataset is not None:
+                return dataset
 
         dataset = self.load_unsorted_data(folder_path,type_list,cutoff,atom_mass_dict,use_tqdm)
 
         # sort dataset to ensure the same sequence on different devices
         # dataset.sort(key=lambda x: x[0])
 
-        save_processed_data(dataset, folder_path)
+        if preprocess:
+            save_processed_data(dataset, folder_path)
         return dataset
 
     @abstractmethod
     def load_unsorted_data(self, folder_path, type_list, cutoff=None, atom_mass_dict=None, use_tqdm=True):
         pass
 
-    def load_from_sdf(self,sdf_file_path, prop_list, type_list, cutoff=None, atom_mass_dict=None, atomrefs=[], use_tqdm=True, init_index=0, skip_list=[]):
+    @abstractmethod
+    def split_data(self,dataset,split_nums,seed,folder_path,key):
+        pass
+
+    def load_from_sdf(self,sdf_file_path, prop_list, type_list, cutoff=None, atom_mass_dict=None, atomrefs={}, use_tqdm=True, init_index=0, skip_list=[]):
         dataset = []
         atom_set = set()
 
@@ -74,7 +81,6 @@ class DatasetLoader(ABC):
             prop = prop_list[index]["prop"]
 
             edge_index = radius_graph(atoms_xyz, r=cutoff, loop=False, max_num_neighbors=32) #[j,i]
-            ij_pos_vecs = atoms_xyz[edge_index[1]] - atoms_xyz[edge_index[0]]
 
             for target in atomrefs:
                 ref_energy = np.array(atomrefs[target],dtype=np.float32)[atoms_type].sum()
@@ -87,7 +93,7 @@ class DatasetLoader(ABC):
                 atoms_pos = atoms_xyz - mass_center
 
             atoms_type = torch.tensor(atoms_type, dtype=torch.int).unsqueeze(1)
-            dataset.append([prop_list[index]["id"], atoms_pos, atoms_type, ij_pos_vecs, edge_index, prop])
+            dataset.append([prop_list[index]["id"], atoms_pos, atoms_type, edge_index, prop])
 
         if use_tqdm:
             progress_bar.close()
@@ -101,13 +107,18 @@ def has_file(file_path):
 def ensure_dir(dir_path):
     os.makedirs(dir_path, exist_ok=True)
 
-def download(url,dir,rename=None,extract=False):
+def download(url,dir,rename=None,extract=None):
     ensure_dir(dir)
     file_path = download_url(url, dir)
 
-    if extract:
-        extract_zip(file_path, dir)
-        os.unlink(file_path)
+    match extract:
+        case "zip":
+            extract_zip(file_path, dir)
+            os.unlink(file_path)
+        case "bz2":
+            with tarfile.open(file_path, "r:bz2") as tar:
+                tar.extractall(path=dir)
+            os.remove(file_path)
 
     if rename is not None:
         os.rename(osp.join(dir, os.path.basename(url)),osp.join(dir, rename))
@@ -131,12 +142,11 @@ def load_processed_data(dir_path,use_zip=False):
                 data = torch.load(f, weights_only=False)
         else:
             data = torch.load(pre_file, weights_only=False)
-        print(datetime.datetime.now())
         return data
     return None
 
 def unit_Ha2meV(ha):
-    return ha * 27211.386245981
+    return unit_u2mu(ha * 27.211386246)
 
 def unit_u2mu(a):
     return a * 1e3
