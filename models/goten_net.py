@@ -30,7 +30,7 @@ class GotenNet(nn.Module):
             self.gata_list.append(GATA(init_X=i==0))
             self.eqff_list.append(EQFF())
 
-        self.decoder = get_decoder(out_label,self.mean,self.std)
+        self.decoder = get_decoder(out_label, mean, std)
         self.out_label = out_label
         self.apply(init_parameters)
 
@@ -38,7 +38,7 @@ class GotenNet(nn.Module):
         n_j, n_i = edge_index
 
         if self.out_label == "e&f":
-            atoms_pos.requires_grad_(True)
+            atoms_pos = atoms_pos.clone().detach().requires_grad_(True)
         x_e = atoms_pos[n_i] - atoms_pos[n_j]
         r_ij,h,t_ij,X = self.embedding(x_n,x_e,edge_index)
 
@@ -96,7 +96,7 @@ class ExponentialRBFLayer(nn.Module):
         centers = self.centers.unsqueeze(0)
         x_exp = torch.exp(self.alpha * (-x))
         dist = (x_exp - centers) ** 2
-        return torch.exp(-self.gammas*dist) * cos_cutoff(x,self.cutoff)
+        return torch.exp(-self.gammas*dist)# * cos_cutoff(x,self.cutoff)
 
 def cos_cutoff(r,r_cut=cfg["cutoff_radius"]):
     mask = r<r_cut
@@ -218,14 +218,10 @@ class HTR(nn.Module):
         ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j] #[E,8,256]
 
         # vector rejection is not mentioned in the paper, but is a part of official implementation
-        eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
-        ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
+        #eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
+        #ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
 
         w_ij = (eq_i * ek_j).sum(dim=1) #[E,256]
-
-        #l_agg_idx = torch.repeat_interleave(torch.tensor(list(range(cfg["degree_max"])),device=edge_index.device), torch.tensor(cfg["high_degree_sizes"],device=edge_index.device))
-        #w_ij = scatter(eq_i * ek_j, l_agg_idx, dim=1,reduce="sum")
-        #w_ij = w_ij.mean(dim=1)
 
         dt_ij = self.mlp_w(w_ij) * self.act_fn(self.mlp_t(t_ij)) #[E,256]
         return dt_ij

@@ -26,7 +26,7 @@ class Loader(DatasetLoader):
     def __init__(self):
         super().__init__()
 
-    def load_unsorted_data(self, folder_path, type_list, cutoff=None, atom_mass_dict=None, use_tqdm=True):
+    def load_unsorted_data(self, folder_path, type_list, cutoff=None, atom_mass_dict=None, use_tqdm=True, key=None):
         raw_path = "{}/raw".format(folder_path)
         ensure_dir(raw_path)
         for file in source_files:

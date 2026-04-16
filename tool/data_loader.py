@@ -15,13 +15,13 @@ import tarfile
 RDLogger.DisableLog('rdApp.warning')
 
 class DatasetLoader(ABC):
-    def load(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True,preprocess=False):
+    def load(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True,preprocess=False, key=None):
         if preprocess:
             dataset = load_processed_data(folder_path)
             if dataset is not None:
                 return dataset
 
-        dataset = self.load_unsorted_data(folder_path,type_list,cutoff,atom_mass_dict,use_tqdm)
+        dataset = self.load_unsorted_data(folder_path,type_list,cutoff,atom_mass_dict,use_tqdm,key)
 
         # sort dataset to ensure the same sequence on different devices
         # dataset.sort(key=lambda x: x[0])
@@ -31,7 +31,7 @@ class DatasetLoader(ABC):
         return dataset
 
     @abstractmethod
-    def load_unsorted_data(self, folder_path, type_list, cutoff=None, atom_mass_dict=None, use_tqdm=True):
+    def load_unsorted_data(self, folder_path, type_list, cutoff=None, atom_mass_dict=None, use_tqdm=True, key=None):
         pass
 
     @abstractmethod

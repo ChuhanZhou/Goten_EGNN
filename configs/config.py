@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from configs import qm9_cfg,qm9_s_cfg,molecule3d_cfg,rmd17_cfg
+from configs import qm9_cfg,qm9_s_cfg,molecule3d_cfg,rmd17_cfg,md22_cfg
 
 config = {
     'title': None,
@@ -9,7 +9,7 @@ config = {
         "url": "https://pubchem.ncbi.nlm.nih.gov/rest/pug/periodictable/JSON",
     },
     'log_path': "./log",
-    'device': torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
+    'device': "cuda:0" if torch.cuda.is_available() else "cpu",
     'seed': 0,
     'preprocess': True,
     'train_size':0.8,
@@ -17,6 +17,7 @@ config = {
     'test_size':0.1,
     'split_key':None,
     'test_in_train':True,
+    'mixed_precision': True,
 
     'model_type':None,
     'atom_types': ['H', 'C', 'N', 'O', 'F'],
@@ -56,5 +57,7 @@ def update_model_cfg(cfg_type):
             config.update(molecule3d_cfg.config)
         case 'rmd17':
             config.update(rmd17_cfg.config)
+        case 'md22':
+            config.update(md22_cfg.config)
         case _:
-            print('unknown model config: {}'.format(cfg_type))
+            raise NotImplementedError('unknown model config: {}'.format(cfg_type))

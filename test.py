@@ -42,20 +42,19 @@ def test(model,dataset,title="testing",use_tqdm=True):
             has_sub_prop = True
             loss = 0
             for s_i,sub_prop_value in enumerate(prop_value):
-                std_sub_prop_value = sub_prop_value.to(device)
                 if s_i == 0:
                     std_sub_prop_value = model.standardize(sub_prop_value.to(device))
+                else:
+                    std_sub_prop_value = sub_prop_value.to(device) / model.std
                 sub_loss = cfg["loss_func"](out[s_i], std_sub_prop_value)
                 loss+=cfg["loss_weights"][s_i]*sub_loss
 
+                sub_out = out[s_i]
                 if s_i == 0:
-                    sub_out = model.destandardize(out[s_i])
-                    sub_target = sub_prop_value
+                    sub_out = model.destandardize(sub_out)
                 else:
-                    sub_out = out[s_i]
-                    sub_target = sub_prop_value
-                    #sub_out = torch.norm(out[s_i],dim=-1,keepdim=True)
-                    #sub_target = torch.norm(sub_prop_value,dim=-1,keepdim=True)
+                    sub_out = sub_out * model.std
+                sub_target = sub_prop_value
 
                 if len(out_list) <= s_i:
                     out_list.append([])
@@ -85,10 +84,11 @@ def test(model,dataset,title="testing",use_tqdm=True):
         for i in range(len(target_list)):
             sub_outs = np.concatenate(out_list[i], axis=0)
             sub_targets = np.concatenate(target_list[i], axis=0)
-            if i==0:
-                sub_mae = np.mean(np.abs(sub_targets - sub_outs))
-            else:
-                sub_mae = np.sum(np.linalg.norm(sub_targets - sub_outs, axis=1)) / len(dataset)
+            sub_mae = np.mean(np.abs(sub_targets - sub_outs))
+            #if i==0:
+            #    sub_mae = np.mean(np.abs(sub_targets - sub_outs))
+            #else:
+            #    sub_mae = np.sum(np.linalg.norm(sub_targets - sub_outs, axis=1)) / len(dataset)
             sub_out_labels = np.concatenate([sub_outs,sub_targets],axis=1)
             out_labels.append(sub_out_labels)
             mae.append(sub_mae)

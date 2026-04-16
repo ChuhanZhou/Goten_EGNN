@@ -37,33 +37,7 @@ class Loader(DatasetLoader):
     def __init__(self):
         super().__init__()
 
-    def prop_str2dict(self,prop_str):
-        prop_list = prop_str.split()
-        prop_dict = {
-            #"tag":prop_list[0],
-            #"index":prop_list[1],
-            "mu": unit_u2mu(float(prop_list[5])), # dipole moment
-            "alpha": unit_u2mu(float(prop_list[6])), # isotropic polarizability
-            "homo": unit_Ha2meV(float(prop_list[7])),  # energy of homo
-            "lumo": unit_Ha2meV(float(prop_list[8])),  # energy of lumo
-            "gap": unit_Ha2meV(float(prop_list[9])),  # gap(lumo-homo)
-            "r2": unit_u2mu(float(prop_list[10])), # electronic spatial extent
-            "zpve": unit_Ha2meV(float(prop_list[11])), # zero point vibrational energy
-            "u0": unit_Ha2meV(float(prop_list[12])), # internal energy at 0K
-            "u": unit_Ha2meV(float(prop_list[13])),  # internal energy at 298.15K
-            "h": unit_Ha2meV(float(prop_list[14])),  # enthalpy at 298.15K
-            "g": unit_Ha2meV(float(prop_list[15])),  # free energy at 298.15K
-            "cv": unit_u2mu(float(prop_list[16])),  # heat capacity at 298.15K
-        }
-        return prop_dict
-
-    def xyz_str2float(self,xyz_str_list):
-        f_list = []
-        for s in xyz_str_list:
-            f_list.append(float(s.replace("*^","e")))
-        return f_list
-
-    def load_unsorted_data(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True):
+    def load_unsorted_data(self,folder_path,type_list,cutoff=None,atom_mass_dict=None,use_tqdm=True, key=None):
         raw_path = "{}/raw".format(folder_path)
         for file in source_files:
             if not has_file("{}/{}".format(raw_path, file)):

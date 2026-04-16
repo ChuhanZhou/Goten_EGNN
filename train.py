@@ -13,6 +13,7 @@ import torch
 import time
 from torch.optim.lr_scheduler import LambdaLR,ReduceLROnPlateau
 from torch.utils.data import random_split, Subset
+from torch.amp import autocast, GradScaler
 import numpy as np
 import random
 import argparse
@@ -81,7 +82,7 @@ if __name__ == '__main__':
     else:
         ckpt = None
 
-    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],cutoff=cfg["cutoff_radius"],atom_mass_dict=load_atom_mass(),use_tqdm=args.tqdm,preprocess=cfg["preprocess"])
+    dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],cutoff=cfg["cutoff_radius"],atom_mass_dict=load_atom_mass(),use_tqdm=args.tqdm,preprocess=cfg["preprocess"],key=cfg["mol_type"])
     if cfg["mol_type"] is not None:
         dataset = dataset[cfg["mol_type"]]
 
@@ -131,14 +132,11 @@ if __name__ == '__main__':
 
     print_log("[{}({})] device: {} | random_seed: {} | total: {} | train: {} | val: {} | test: {}".format(cfg["title"],cfg["model_type"], device, seed, len(dataset), len(train_set), len(val_set), len(test_set)))
 
-    #model = GotenNet()
     model = GotenNet(mean=mean, std=std)
-    if args.ckpt:
-        print_log("Continue training from [{}]".format(args.ckpt))
-        model.load_state_dict(ckpt["model_ckpt"], strict=True)
-
     model.to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=cfg['weight_decay'],eps=1e-7)
+
+    scaler = GradScaler()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=cfg['weight_decay'], eps=1e-7)
     scheduler_warmup = LambdaLR(optimizer, lr_lambda=warmup_lambda)
     scheduler_plateau = ReduceLROnPlateau(
         optimizer,
@@ -146,33 +144,33 @@ if __name__ == '__main__':
         factor=cfg["lr_decay"],
         patience=cfg["lr_patience"],
         threshold=1e-6,
-        threshold_mode = 'rel',
+        threshold_mode='rel',
         cooldown=2,
         min_lr=1e-7)
 
-    current_step = 0
+    if args.ckpt:
+        print_log("Continue training from [{}]".format(args.ckpt))
+        model.load_state_dict(ckpt["model_ckpt"], strict=True)
+        scaler.load_state_dict(ckpt["scaler"])
+        optimizer.param_groups[0]['lr'] = ckpt["lr"]
+        #optimizer.load_state_dict(ckpt["optimizer"])
+        scheduler_warmup.load_state_dict(ckpt["scheduler_warmup"])
+        scheduler_plateau.load_state_dict(ckpt["scheduler_plateau"])
+
     min_val_mae = math.inf
-    best_ckpt = None
-    not_best_step = 0
+    not_best_epoch = 0
 
     #Preparing to continue training
     for epoch in range(len(val_mae_history)):
-        if current_step < cfg["warmup"]:
-            train_dataloader = get_epoch_dataloader(base_seed=seed, epoch=epoch, dataset=train_set, batch_size=batch_size,collate_fn=collate_fn)
-            for i, data in enumerate(train_dataloader):
-                current_step += 1
-                optimizer.step()
-                optimizer.zero_grad()
-                if current_step <= cfg["warmup"]:
-                    scheduler_warmup.step()
+        if scheduler_warmup.last_epoch < cfg["warmup"]:
+            break
         else:
             val_mae = val_mae_history[epoch]
-            scheduler_plateau.step(val_mae)
             if min_val_mae > val_mae:
                 min_val_mae = val_mae
-                not_best_step = 0
+                not_best_epoch = 0
             else:
-                not_best_step += 1
+                not_best_epoch += 1
 
     sub_label = cfg["predict_label"] if  cfg["mol_type"] is None else cfg["mol_type"]
     ckpt_path = "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], len(train_set), seed, sub_label)
@@ -182,7 +180,7 @@ if __name__ == '__main__':
     has_sub_prop = False
     for epoch in range(start_epoch, epoch_num):
         # early stop
-        if cfg["stop_patience"] is not None and not_best_step >= cfg["stop_patience"]:
+        if cfg["stop_patience"] is not None and not_best_epoch >= cfg["stop_patience"]:
             break
 
         model.train()
@@ -192,35 +190,44 @@ if __name__ == '__main__':
             time.sleep(0.01)
             progress_bar = tqdm(desc="[{}] [epoch]:{}".format(datetime.datetime.now(), epoch),total=len(train_dataloader))
 
-        total_loss = 0
+        total_loss = []
         avg_loss = None
         for i, data in enumerate(train_dataloader):
             [atoms_pos, atoms_type, edge_index, prop_value, atoms_batch_index] = data
 
-            out = model(atoms_pos.to(device), atoms_type.to(device), edge_index.to(device), atoms_batch_index.to(device))
+            with autocast(device_type=device,enabled=cfg["mixed_precision"]):
+                out = model(atoms_pos.to(device), atoms_type.to(device), edge_index.to(device), atoms_batch_index.to(device))
 
-            if isinstance(prop_value, list): # for rMD17 and MD22
-                has_sub_prop = True
-                loss = 0
-                for s_i,sub_prop_value in enumerate(prop_value):
-                    sub_prop_value = sub_prop_value.to(device)
-                    if s_i == 0:
-                        sub_prop_value = model.standardize(sub_prop_value)
-                    sub_loss = cfg["loss_func"](out[s_i], sub_prop_value)
-                    loss+=cfg["loss_weights"][s_i]*sub_loss
-            else: # for QM9 and molecule3d
-                std_prop_value = model.standardize(prop_value.to(device))
-                loss = cfg["loss_func"](out,std_prop_value)
+                if isinstance(prop_value, list): # for rMD17 and MD22
+                    has_sub_prop = True
+                    loss = 0
+                    for s_i,sub_prop_value in enumerate(prop_value):
+                        sub_prop_value = sub_prop_value.to(device)
+                        if s_i == 0:
+                            sub_prop_value = model.standardize(sub_prop_value)
+                        else:
+                            sub_prop_value = sub_prop_value/model.std
+                        sub_loss = cfg["loss_func"](out[s_i], sub_prop_value)
+                        loss+=cfg["loss_weights"][s_i]*sub_loss
+                else: # for QM9 and molecule3d
+                    std_prop_value = model.standardize(prop_value.to(device))
+                    loss = cfg["loss_func"](out,std_prop_value)
 
-            loss.backward()
+            scaler.scale(loss).backward()
             if cfg["grad_clip"]:
+                scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["grad_clip"])
-            optimizer.step()
+            scale_before = scaler.get_scale()
+            scaler.step(optimizer)
+            scaler.update()
+            scale_after = scaler.get_scale()
+            is_skip = scale_after < scale_before
             optimizer.zero_grad()
 
-            total_loss += loss.item()
+            if not is_skip:
+                total_loss.append(loss.item())
             lr = optimizer.param_groups[0]['lr']
-            avg_loss = total_loss / (i+1)
+            avg_loss = np.mean(total_loss) if len(total_loss) > 0 else 0
             if args.tqdm:
                 progress_bar.set_postfix(
                     lr="{:.3e}".format(lr),
@@ -228,8 +235,7 @@ if __name__ == '__main__':
                     avg_loss="{:.3e}".format(avg_loss))
                 progress_bar.update()
 
-            current_step+=1
-            if current_step <= cfg["warmup"]:
+            if not is_skip and scheduler_warmup.last_epoch < cfg["warmup"]:
                 scheduler_warmup.step()
 
         if args.tqdm:
@@ -237,9 +243,14 @@ if __name__ == '__main__':
 
         val_loss, val_mae, _ = test(model, val_set,"val_set",args.tqdm)
 
-        step_mae = np.mean(np.array(val_mae))
+        step_mae=0
+        if has_sub_prop:
+            for i, sub_mae in enumerate(val_mae):
+                step_mae += cfg["loss_weights"][i]*sub_mae
+        else:
+            step_mae += val_mae
         val_mae_history.append(step_mae)
-        if current_step > cfg["warmup"]:
+        if scheduler_warmup.last_epoch >= cfg["warmup"]:
             scheduler_plateau.step(step_mae)
 
         epoch_result = "[epoch]:{} [lr]:{:.3e} [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):".format(epoch, lr, avg_loss, val_loss, cfg["predict_label"])
@@ -275,6 +286,10 @@ if __name__ == '__main__':
             },
             "log": LogFileName,
             "val_history":val_mae_history,
+            "scaler":scaler.state_dict(),
+            "lr":optimizer.param_groups[0]['lr'],
+            "scheduler_warmup":scheduler_warmup.state_dict(),
+            "scheduler_plateau":scheduler_plateau.state_dict(),
         }
 
         torch.save(ckpt, ckpt_path)
@@ -282,9 +297,9 @@ if __name__ == '__main__':
         if min_val_mae > step_mae:
             min_val_mae = step_mae
             torch.save(ckpt, best_ckpt_path)
-            not_best_step = 0
+            not_best_epoch = 0
         else:
-            not_best_step += 1
+            not_best_epoch += 1
 
     best_ckpt = torch.load(best_ckpt_path, weights_only=False)["model_ckpt"]
     model.load_state_dict(best_ckpt, strict=True)

@@ -100,8 +100,8 @@ def get_decoder(label,mean=0,std=1):
 class GraphDecoder(nn.Module):
     def __init__(self,mean=0,std=1):
         super().__init__()
-        self.mean = mean
-        self.std = std
+        self.register_buffer("mean", torch.tensor(mean, dtype=torch.float32))
+        self.register_buffer("std", torch.tensor(std, dtype=torch.float32))
 
     @abstractmethod
     def forward(self, pos, scaler, vector, batch_index):
@@ -189,27 +189,6 @@ class DipoleMomentDecoder(GraphDecoder):
         out = self.standardize(out)
         return out
 
-class IsotropicPolarizabilityDecoder(GraphDecoder):
-    def __init__(self,in_features,hidden_dim=None,standardize=None,destandardize=None):
-        super().__init__()
-        if hidden_dim is None:
-            hidden_dim = in_features // 2
-
-        self.decoder_nu = GateV2(in_features=in_features,out_features=1,hidden_dim=hidden_dim)
-
-    def forward(self, pos, scaler, vector, batch_index):
-        I_3 = torch.eye(3,device=scaler.device)
-        s,nu = self.decoder_nu(scaler, vector)
-
-        nu = nu.squeeze()
-        outer_1 = nu.unsqueeze(-1) * pos.unsqueeze(-2)
-        outer_2 = pos.unsqueeze(-1) * nu.unsqueeze(-2)
-        alpha = s.unsqueeze(-1) * I_3 + outer_1 + outer_2
-        out = scatter(alpha, batch_index, dim=0, reduce="sum")
-        out = out.diagonal(dim1=-2, dim2=-1).sum(-1) / 3
-        out = out.unsqueeze(-1)
-        return out
-
 class ElectronicSpatialExtentDecoder(GraphDecoder):
     def __init__(self,in_features,hidden_dim=None,mean=0,std=1):
         super().__init__(mean, std)
@@ -225,7 +204,7 @@ class ElectronicSpatialExtentDecoder(GraphDecoder):
 
         out = scatter(q_i * r2_i, batch_index, dim=0, reduce="sum")
 
-        out = self.standardize(out)
+        #out = self.standardize(out)
 
         return out
 
@@ -235,24 +214,20 @@ class EnergyForceDecoder(GraphDecoder):
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        #self.decoder = ExtensiveScalerDecoder(in_features=in_features,hidden_dim=hidden_dim)
         self.decoder = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim)
 
     def forward(self, pos, scaler, vector, batch_index):
-        #energy_out = self.decoder(pos, scaler, vector, batch_index)
         node_scaler = self.decoder(scaler)
-        node_scaler = node_scaler * self.std
-        energy = scatter(node_scaler, batch_index, dim=0, reduce="sum")
+        energy_out = scatter(node_scaler, batch_index, dim=0, reduce="sum")
 
-        energy = energy + self.mean
-        energy_out = self.standardize(energy)
+        energy = energy_out
 
         force_out = -grad(
             outputs=energy,
-            inputs=[pos],
+            inputs=pos,
             grad_outputs=torch.ones_like(energy),
             create_graph=True,
             retain_graph=True,
         )[0]
-        #force_out = scatter(force_out, batch_index, dim=0, reduce="sum")
+
         return [energy_out, force_out]
