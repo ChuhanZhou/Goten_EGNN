@@ -94,6 +94,12 @@ def get_decoder(label,mean=0,std=1):
             return ExtensiveScalerDecoder(cfg["node_dim"])
         case "e&f":
             return EnergyForceDecoder(cfg["node_dim"],mean=mean,std=std)
+        case "scaler_ext":
+            return ExtensiveScalerDecoder(cfg["node_dim"])
+        case "scaler_int":
+            return IntensiveScalerDecoder(cfg["node_dim"])
+        case "scaler_mix":
+            return ScalerDecoder(cfg["node_dim"])
         case other:
             raise NotImplementedError("Don't know how to decode: {}".format(label))
 
@@ -145,20 +151,13 @@ class ScalerDecoder(GraphDecoder):
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.node_decoder = MLP(in_features=in_features, out_features=hidden_dim, hidden_dim=hidden_dim)
-        self.graph_decoder = MLP(in_features=in_features, out_features=hidden_dim, hidden_dim=hidden_dim)
-        #self.finial_decoder = MLP(in_features=hidden_dim * 2, out_features=1, hidden_dim=hidden_dim)
-        self.finial_decoder = nn.Linear(in_features=hidden_dim*2, out_features=1)
-
-        self.act_fn = cfg["activation"]
+        self.node_decoder = ExtensiveScalerDecoder(in_features=in_features, hidden_dim=hidden_dim)
+        self.graph_decoder = IntensiveScalerDecoder(in_features=in_features, hidden_dim=hidden_dim)
 
     def forward(self, pos, scaler, vector, batch_index):
-        node_scaler = self.act_fn(self.node_decoder(scaler))
-        node_scaler = scatter(node_scaler, batch_index, dim=0, reduce="sum")
-        graph_scaler = scatter(scaler, batch_index, dim=0, reduce="mean")
-        graph_scaler = self.act_fn(self.graph_decoder(graph_scaler))
-        mix_scaler = torch.cat([graph_scaler, node_scaler], dim=-1)
-        out = self.finial_decoder(mix_scaler)
+        node_scaler = self.node_decoder(pos, scaler, vector, batch_index)
+        graph_scaler = self.graph_decoder(pos, scaler, vector, batch_index)
+        out = graph_scaler + node_scaler
         return out
 
 class DipoleMomentDecoder(GraphDecoder):
@@ -204,7 +203,7 @@ class ElectronicSpatialExtentDecoder(GraphDecoder):
 
         out = scatter(q_i * r2_i, batch_index, dim=0, reduce="sum")
 
-        #out = self.standardize(out)
+        out = self.standardize(out)
 
         return out
 
@@ -214,11 +213,10 @@ class EnergyForceDecoder(GraphDecoder):
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim)
+        self.decoder = ExtensiveScalerDecoder(in_features, hidden_dim)
 
     def forward(self, pos, scaler, vector, batch_index):
-        node_scaler = self.decoder(scaler)
-        energy_out = scatter(node_scaler, batch_index, dim=0, reduce="sum")
+        energy_out = self.decoder(pos, scaler, vector, batch_index)
 
         energy = energy_out
 

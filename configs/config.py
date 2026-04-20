@@ -17,7 +17,6 @@ config = {
     'test_size':0.1,
     'split_key':None,
     'test_in_train':True,
-    'mixed_precision': True,
 
     'model_type':None,
     'atom_types': ['H', 'C', 'N', 'O', 'F'],

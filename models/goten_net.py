@@ -208,7 +208,7 @@ class HTR(nn.Module):
         #self.mlp_w = nn.Linear(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"]) if cfg["edge_ref_dim"] != cfg["edge_dim"] else nn.Identity()
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
-        self.act_fn = cfg["activation"]
+        #self.act_fn = cfg["activation"]
 
     def forward(self, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
@@ -223,7 +223,7 @@ class HTR(nn.Module):
 
         w_ij = (eq_i * ek_j).sum(dim=1) #[E,256]
 
-        dt_ij = self.mlp_w(w_ij) * self.act_fn(self.mlp_t(t_ij)) #[E,256]
+        dt_ij = self.mlp_w(w_ij) * self.mlp_t(t_ij) #[E,256]
         return dt_ij
 
     @staticmethod
@@ -248,12 +248,9 @@ class GATA(nn.Module):
         self.w_rs = nn.Linear(cfg["edge_dim"], S * cfg["node_dim"])
         self.mlp_s = MLP(in_features=cfg["node_dim"],out_features=S * cfg["node_dim"])
 
-        #self.ln = nn.LayerNorm(cfg["node_dim"])
-
     def forward(self, h, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
         r_0 = r_ij[0]
-        #h = self.ln(h)
 
         if X is not None:
             dt_ij = self.htr(X, t_ij, r_ij[1:], edge_index)

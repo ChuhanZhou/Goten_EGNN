@@ -3,6 +3,7 @@ import sys
 
 from configs.config import config as cfg,update_model_cfg
 from models.goten_net import GotenNet
+from models.decoder import get_decoder
 from tool.utils import collate_fn,get_mean_std,load_atom_mass
 from test import test
 from tool.log_utils import print_log,LogFileName,load_log
@@ -43,6 +44,7 @@ if __name__ == '__main__':
     parser.add_argument('--tqdm', help="print progress bar", type=str, default="True")
     parser.add_argument('--ckpt_def', help="continue on default ckpt", type=str, default="False")
     parser.add_argument('--ver', help="model type", type=str, default="qm9_s")
+    parser.add_argument('--decoder', help="decoder type", type=str, default=None)
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
     args.ckpt_def = args.ckpt_def.lower() == "true"
@@ -133,9 +135,10 @@ if __name__ == '__main__':
     print_log("[{}({})] device: {} | random_seed: {} | total: {} | train: {} | val: {} | test: {}".format(cfg["title"],cfg["model_type"], device, seed, len(dataset), len(train_set), len(val_set), len(test_set)))
 
     model = GotenNet(mean=mean, std=std)
+    if args.decoder is not None:
+        model.decoder = get_decoder(args.decoder,mean,std)
     model.to(device)
 
-    scaler = GradScaler()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=cfg['weight_decay'], eps=1e-7)
     scheduler_warmup = LambdaLR(optimizer, lr_lambda=warmup_lambda)
     scheduler_plateau = ReduceLROnPlateau(
@@ -151,9 +154,7 @@ if __name__ == '__main__':
     if args.ckpt:
         print_log("Continue training from [{}]".format(args.ckpt))
         model.load_state_dict(ckpt["model_ckpt"], strict=True)
-        scaler.load_state_dict(ckpt["scaler"])
         optimizer.param_groups[0]['lr'] = ckpt["lr"]
-        #optimizer.load_state_dict(ckpt["optimizer"])
         scheduler_warmup.load_state_dict(ckpt["scheduler_warmup"])
         scheduler_plateau.load_state_dict(ckpt["scheduler_plateau"])
 
@@ -195,38 +196,34 @@ if __name__ == '__main__':
         for i, data in enumerate(train_dataloader):
             [atoms_pos, atoms_type, edge_index, prop_value, atoms_batch_index] = data
 
-            with autocast(device_type=device,enabled=cfg["mixed_precision"]):
-                out = model(atoms_pos.to(device), atoms_type.to(device), edge_index.to(device), atoms_batch_index.to(device))
+            out = model(atoms_pos.to(device), atoms_type.to(device), edge_index.to(device), atoms_batch_index.to(device))
 
-                if isinstance(prop_value, list): # for rMD17 and MD22
-                    has_sub_prop = True
-                    loss = 0
-                    for s_i,sub_prop_value in enumerate(prop_value):
-                        sub_prop_value = sub_prop_value.to(device)
-                        if s_i == 0:
-                            sub_prop_value = model.standardize(sub_prop_value)
-                        else:
-                            sub_prop_value = sub_prop_value/model.std
-                        sub_loss = cfg["loss_func"](out[s_i], sub_prop_value)
-                        loss+=cfg["loss_weights"][s_i]*sub_loss
-                else: # for QM9 and molecule3d
-                    std_prop_value = model.standardize(prop_value.to(device))
-                    loss = cfg["loss_func"](out,std_prop_value)
+            if isinstance(prop_value, list): # for rMD17 and MD22
+                has_sub_prop = True
+                loss = 0
+                for s_i,sub_prop_value in enumerate(prop_value):
+                    sub_prop_value = sub_prop_value.to(device)
+                    if s_i == 0:
+                        sub_prop_value = model.standardize(sub_prop_value)
+                    else:
+                        sub_prop_value = sub_prop_value/model.std
+                    sub_loss = cfg["loss_func"](out[s_i], sub_prop_value)
+                    loss+=cfg["loss_weights"][s_i]*sub_loss
+            else: # for QM9 and molecule3d
+                std_prop_value = model.standardize(prop_value.to(device))
+                loss = cfg["loss_func"](out,std_prop_value)
 
-            scaler.scale(loss).backward()
-            if cfg["grad_clip"]:
-                scaler.unscale_(optimizer)
+            lr = optimizer.param_groups[0]['lr']
+            if torch.isfinite(loss):
+                loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["grad_clip"])
-            scale_before = scaler.get_scale()
-            scaler.step(optimizer)
-            scaler.update()
-            scale_after = scaler.get_scale()
-            is_skip = scale_after < scale_before
+                optimizer.step()
+                total_loss.append(loss.item())
+
+                if scheduler_warmup.last_epoch < cfg["warmup"]:
+                    scheduler_warmup.step()
             optimizer.zero_grad()
 
-            if not is_skip:
-                total_loss.append(loss.item())
-            lr = optimizer.param_groups[0]['lr']
             avg_loss = np.mean(total_loss) if len(total_loss) > 0 else 0
             if args.tqdm:
                 progress_bar.set_postfix(
@@ -234,9 +231,6 @@ if __name__ == '__main__':
                     loss="{:.3e}".format(loss.item()),
                     avg_loss="{:.3e}".format(avg_loss))
                 progress_bar.update()
-
-            if not is_skip and scheduler_warmup.last_epoch < cfg["warmup"]:
-                scheduler_warmup.step()
 
         if args.tqdm:
             progress_bar.close()
@@ -286,7 +280,6 @@ if __name__ == '__main__':
             },
             "log": LogFileName,
             "val_history":val_mae_history,
-            "scaler":scaler.state_dict(),
             "lr":optimizer.param_groups[0]['lr'],
             "scheduler_warmup":scheduler_warmup.state_dict(),
             "scheduler_plateau":scheduler_plateau.state_dict(),

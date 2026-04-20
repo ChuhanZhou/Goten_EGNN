@@ -4,7 +4,7 @@ from tool.data_loader import ensure_dir
 import datetime
 
 LogHistory = []
-StrHistory = ""
+NewLogStr = ""
 InitTime = datetime.datetime.now()
 LogFileName = "{}_{}_{}_{}_{}_{}".format(
     InitTime.year,
@@ -15,20 +15,28 @@ LogFileName = "{}_{}_{}_{}_{}_{}".format(
     InitTime.second)
 
 def print_log(str_info):
-    global StrHistory
+    global NewLogStr
     str_info = "[{}] {}".format(datetime.datetime.now(),str_info)
-    StrHistory += "{}\n".format(str_info)
+    NewLogStr += "{}\n".format(str_info)
     LogHistory.append(str_info)
 
     print(str_info)
 
-    export_log_history()
+    export_new_log()
 
-def export_log_history():
+def export_new_log():
     ensure_dir(cfg['log_path'])
     sub_label = cfg["predict_label"] if cfg["mol_type"] is None else cfg["mol_type"]
-    with open("{}/{}_{}.txt".format(cfg['log_path'],LogFileName,sub_label), "w", encoding="utf-8") as file:
-        file.write(StrHistory)
+    with open("{}/{}_{}.txt".format(cfg['log_path'],LogFileName,sub_label), "a", encoding="utf-8") as file:
+        global NewLogStr
+        file.write(NewLogStr)
+        NewLogStr = ""
+
+#def export_log_history():
+#    ensure_dir(cfg['log_path'])
+#    sub_label = cfg["predict_label"] if cfg["mol_type"] is None else cfg["mol_type"]
+#    with open("{}/{}_{}.txt".format(cfg['log_path'],LogFileName,sub_label), "w", encoding="utf-8") as file:
+#        file.write(StrHistory)
 
 def load_log(file_name):
     sub_label = cfg["predict_label"] if cfg["mol_type"] is None else cfg["mol_type"]
@@ -37,6 +45,6 @@ def load_log(file_name):
         lines = file.readlines()
 
     for line in lines:
-        global StrHistory
-        StrHistory += line
+        global NewLogStr
+        NewLogStr += line
         LogHistory.append(line.strip())

@@ -59,9 +59,6 @@ def get_mean_std(prop_dict_list,prop_labels = None):
 
     return {l: (mean[i],std[i]) for i,l in enumerate(prop_labels) }
 
-def unit_Ha2meV(ha):
-    return ha * 27211.386245981
-
 def load_atom_mass(file_path=None):
     if file_path == None:
         file_path = cfg["atom_mass"]["path"]
