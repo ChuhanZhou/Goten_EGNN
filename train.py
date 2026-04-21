@@ -53,6 +53,12 @@ if __name__ == '__main__':
 
     if args.title is not None:
         cfg['title'] = args.title
+    if args.seed is not None:
+        cfg['seed'] = args.seed
+    if args.label is not None:
+        cfg['predict_label'] = args.label
+    if args.mol is not None:
+        cfg['mol_type'] = args.mol
 
     if args.ckpt is None and args.ckpt_def:
         if cfg['mol_type'] is None:
@@ -78,14 +84,6 @@ if __name__ == '__main__':
         load_log(ckpt['log'])
     else:
         ckpt = None
-        if args.title is not None:
-            cfg['title'] = args.title
-        if args.seed is not None:
-            cfg['seed'] = args.seed
-        if args.label is not None:
-            cfg['predict_label'] = args.label
-        if args.mol is not None:
-            cfg['mol_type'] = args.mol
 
     if args.epoch is not None:
         cfg['epochs'] = args.epoch
