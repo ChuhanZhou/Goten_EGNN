@@ -120,12 +120,15 @@ class GraphDecoder(nn.Module):
         return v * self.std + self.mean
 
 class IntensiveScalerDecoder(GraphDecoder):
-    def __init__(self,in_features,hidden_dim=None):
+    def __init__(self,in_features,hidden_dim=None,act_fn=None):
         super().__init__()
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim)
+        if act_fn is None:
+            act_fn = cfg["activation"]
+
+        self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim,act_fn=act_fn)
 
     def forward(self, pos, scaler, vector, batch_index):
         graph_scaler = scatter(scaler, batch_index, dim=0, reduce="mean")
@@ -133,12 +136,15 @@ class IntensiveScalerDecoder(GraphDecoder):
         return out
 
 class ExtensiveScalerDecoder(GraphDecoder):
-    def __init__(self, in_features, hidden_dim=None):
+    def __init__(self, in_features, hidden_dim=None,act_fn=None):
         super().__init__()
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim)
+        if act_fn is None:
+            act_fn = cfg["activation"]
+
+        self.decoder = MLP(in_features=in_features,out_features=1,hidden_dim=hidden_dim,act_fn=act_fn)
 
     def forward(self, pos, scaler, vector, batch_index):
         node_scaler = self.decoder(scaler)
@@ -146,13 +152,16 @@ class ExtensiveScalerDecoder(GraphDecoder):
         return out
 
 class ScalerDecoder(GraphDecoder):
-    def __init__(self,in_features,hidden_dim=None):
+    def __init__(self,in_features,hidden_dim=None,act_fn=None):
         super().__init__()
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.node_decoder = ExtensiveScalerDecoder(in_features=in_features, hidden_dim=hidden_dim)
-        self.graph_decoder = IntensiveScalerDecoder(in_features=in_features, hidden_dim=hidden_dim)
+        if act_fn is None:
+            act_fn = cfg["activation"]
+
+        self.node_decoder = ExtensiveScalerDecoder(in_features=in_features, hidden_dim=hidden_dim,act_fn=act_fn)
+        self.graph_decoder = IntensiveScalerDecoder(in_features=in_features, hidden_dim=hidden_dim,act_fn=act_fn)
 
     def forward(self, pos, scaler, vector, batch_index):
         node_scaler = self.node_decoder(pos, scaler, vector, batch_index)
@@ -194,14 +203,14 @@ class ElectronicSpatialExtentDecoder(GraphDecoder):
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim,act_fn=ShiftedSoftplus())
+        self.decoder_q = ExtensiveScalerDecoder(in_features=in_features, hidden_dim=hidden_dim,act_fn=ShiftedSoftplus())
 
     def forward(self, pos, scaler, vector, batch_index):
         q_i = self.decoder_q(scaler)
 
         r2_i = torch.norm(pos,dim=1,keepdim=True) ** 2
 
-        out = scatter(q_i * r2_i, batch_index, dim=0, reduce="sum")
+        out = q_i * r2_i
 
         out = self.standardize(out)
 

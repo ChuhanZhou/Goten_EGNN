@@ -1,5 +1,5 @@
 from configs.config import config as cfg
-from tool.data_loader import ensure_dir
+from tool.data_loader import ensure_dir,has_file
 
 import datetime
 
@@ -41,10 +41,12 @@ def export_new_log():
 def load_log(file_name):
     sub_label = cfg["predict_label"] if cfg["mol_type"] is None else cfg["mol_type"]
 
-    with open("{}/{}_{}.txt".format(cfg['log_path'],file_name,sub_label), 'r', encoding='utf-8') as file:
-        lines = file.readlines()
+    log_file = "{}/{}_{}.txt".format(cfg['log_path'],file_name,sub_label)
+    if has_file(log_file):
+        with open(log_file, 'r', encoding='utf-8') as file:
+            lines = file.readlines()
 
-    for line in lines:
-        global NewLogStr
-        NewLogStr += line
-        LogHistory.append(line.strip())
+        for line in lines:
+            global NewLogStr
+            NewLogStr += line
+            LogHistory.append(line.strip())

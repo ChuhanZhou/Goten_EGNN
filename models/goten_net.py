@@ -208,8 +208,6 @@ class HTR(nn.Module):
         #self.mlp_w = nn.Linear(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"]) if cfg["edge_ref_dim"] != cfg["edge_dim"] else nn.Identity()
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
-        #self.act_fn = cfg["activation"]
-
     def forward(self, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
         X_ls =  torch.cat(X, dim=1) #[N,8,256]
