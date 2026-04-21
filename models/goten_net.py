@@ -30,14 +30,17 @@ class GotenNet(nn.Module):
             self.gata_list.append(GATA(init_X=i==0))
             self.eqff_list.append(EQFF())
 
-        self.decoder = get_decoder(out_label, mean, std)
-        self.out_label = out_label
+        self.set_decoder(out_label, mean, std)
         self.apply(init_parameters)
 
-    def forward(self, atoms_pos, x_n, edge_index,batch_index):
+    def set_decoder(self,decoder_type, mean=0, std=1):
+        self.decoder = get_decoder(decoder_type, mean, std)
+        self.decoder_type = decoder_type
+
+    def forward(self, atoms_pos, x_n, edge_index, batch_index):
         n_j, n_i = edge_index
 
-        if self.out_label == "e&f":
+        if self.decoder_type == "e&f":
             atoms_pos = atoms_pos.clone().detach().requires_grad_(True)
         x_e = atoms_pos[n_i] - atoms_pos[n_j]
         r_ij,h,t_ij,X = self.embedding(x_n,x_e,edge_index)

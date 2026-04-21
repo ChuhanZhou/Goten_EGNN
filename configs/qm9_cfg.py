@@ -8,7 +8,7 @@ config = {
     'data_loader':qm9_loader.Loader(),
     'train_size':110000,
     'val_size':10000,
-    'test_size':10831,
+    'test_size':-1,
     'preprocess': True,
     'test_in_train':True,
 

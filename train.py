@@ -2,6 +2,7 @@ import math
 import sys
 
 from configs.config import config as cfg,update_model_cfg
+from tool.data_loader import split_data_by_ids
 from models.goten_net import GotenNet
 from models.decoder import get_decoder
 from tool.utils import collate_fn,get_mean_std,load_atom_mass
@@ -51,6 +52,12 @@ if __name__ == '__main__':
 
     update_model_cfg(args.ver)
 
+    args.title = "test_s"
+    args.label = "u"
+    #args.ckpt = "./ckpt/qm9_B_mix_t110000_s0_alpha_best.pth"
+    args.decoder = "scaler_mix"
+    args.ckpt_def = True
+
     if args.title is not None:
         cfg['title'] = args.title
     if args.seed is not None:
@@ -70,7 +77,7 @@ if __name__ == '__main__':
         print_log("Can't find ckpt at [{}]".format(args.ckpt))
         args.ckpt = None
 
-    val_mae_history = []
+
     if args.ckpt:
         ckpt = torch.load(args.ckpt, weights_only=False)
         update_model_cfg(ckpt["dataset"]["version"])
@@ -78,9 +85,9 @@ if __name__ == '__main__':
             cfg['title'] = args.title
         cfg['seed'] = ckpt['seed']
         cfg["predict_label"] = ckpt["label"]
+        args.decoder = ckpt["decoder"]
         if 'mol_type' in ckpt.keys():
             cfg['mol_type'] = ckpt['mol_type']
-        val_mae_history += ckpt["val_history"]
         load_log(ckpt['log'])
     else:
         ckpt = None
@@ -113,9 +120,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = False
 
     if args.ckpt:
-        train_set = Subset(dataset, ckpt["dataset"]["train"])
-        val_set = Subset(dataset, ckpt["dataset"]["valid"])
-        test_set = Subset(dataset, ckpt["dataset"]["test"])
+        train_set, val_set, test_set = split_data_by_ids(dataset, [ckpt["dataset"]["train"],ckpt["dataset"]["valid"], ckpt["dataset"]["test"]])
     else:
         if cfg["train_size"]>=1 and cfg["val_size"]>=1 and cfg["test_size"]>=1:
             data_drop_len = len(dataset) - (cfg["train_size"] + cfg["val_size"] + cfg["test_size"])
@@ -142,10 +147,9 @@ if __name__ == '__main__':
 
     model = GotenNet(mean=mean, std=std)
     if args.decoder is not None:
-        model.decoder = get_decoder(args.decoder,mean,std)
+        model.set_decoder(args.decoder,mean,std)
     model.to(device)
 
-    #scaler = GradScaler()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=cfg['weight_decay'], eps=1e-7)
     scheduler_warmup = LambdaLR(optimizer, lr_lambda=warmup_lambda)
     scheduler_plateau = ReduceLROnPlateau(
@@ -158,31 +162,31 @@ if __name__ == '__main__':
         cooldown=2,
         min_lr=1e-7)
 
-    if args.ckpt:
-        print_log("Continue training from [{}]".format(args.ckpt))
-        model.load_state_dict(ckpt["model_ckpt"], strict=True)
-        optimizer.param_groups[0]['lr'] = ckpt["lr"]
-        scheduler_warmup.load_state_dict(ckpt["scheduler_warmup"])
-        scheduler_plateau.load_state_dict(ckpt["scheduler_plateau"])
-
+    val_mae_history = []
     min_val_mae = math.inf
     not_best_epoch = 0
 
-    #Preparing to continue training
-    for epoch in range(len(val_mae_history)):
-        if scheduler_warmup.last_epoch < cfg["warmup"]:
-            break
-        else:
-            val_mae = val_mae_history[epoch]
-            if min_val_mae > val_mae:
-                min_val_mae = val_mae
-                not_best_epoch = 0
-            else:
-                not_best_epoch += 1
+    if args.ckpt: #Preparing to continue training
+        print_log("Continue training from [{}]".format(args.ckpt))
+        model.load_state_dict(ckpt["model_ckpt"], strict=True)
+
+        if "continue" in ckpt:
+            val_mae_history += ckpt["continue"]["val_history"]
+            optimizer.load_state_dict(ckpt["continue"]["optimizer"])
+            scheduler_warmup.load_state_dict(ckpt["continue"]["scheduler_warmup"])
+            scheduler_plateau.load_state_dict(ckpt["continue"]["scheduler_plateau"])
+
+            for epoch in range(len(val_mae_history)):
+                val_mae = val_mae_history[epoch]
+                if min_val_mae > val_mae:
+                    min_val_mae = val_mae
+                    not_best_epoch = 0
+                else:
+                    not_best_epoch += 1
 
     sub_label = cfg["predict_label"] if  cfg["mol_type"] is None else cfg["mol_type"]
-    ckpt_path = "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], len(train_set), seed, sub_label)
-    best_ckpt_path = "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], len(train_set), seed, sub_label)
+    ckpt_path = "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], cfg["train_size"], seed, sub_label)
+    best_ckpt_path = "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], cfg["train_size"], seed, sub_label)
 
     start_epoch = len(val_mae_history)
     has_sub_prop = False
@@ -251,8 +255,7 @@ if __name__ == '__main__':
         else:
             step_mae += val_mae
         val_mae_history.append(step_mae)
-        if scheduler_warmup.last_epoch >= cfg["warmup"]:
-            scheduler_plateau.step(step_mae)
+        scheduler_plateau.step(step_mae)
 
         epoch_result = "[epoch]:{} [lr]:{:.3e} [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):".format(epoch, lr, avg_loss, val_loss, cfg["predict_label"])
         val_results = []
@@ -279,25 +282,30 @@ if __name__ == '__main__':
             "model_ckpt":model.state_dict(),
             "seed": seed,
             "label": cfg["predict_label"],
+            "decoder": model.decoder_type,
             "mol_type": cfg["mol_type"],
             "dataset": {
                 "version": cfg["model_type"],
-                "train": train_set.indices,
-                "valid": val_set.indices,
-                "test": test_set.indices,
+                "train": [dataset[d_i][0] for d_i in train_set.indices],
+                "valid": [dataset[d_i][0] for d_i in val_set.indices],
+                "test": [dataset[d_i][0] for d_i in test_set.indices],
             },
             "log": LogFileName,
-            "val_history":val_mae_history,
-            "lr":optimizer.param_groups[0]['lr'],
-            "scheduler_warmup":scheduler_warmup.state_dict(),
-            "scheduler_plateau":scheduler_plateau.state_dict(),
+            "continue":{
+                "val_history": val_mae_history,
+                "optimizer": optimizer.state_dict(),
+                "scheduler_warmup": scheduler_warmup.state_dict(),
+                "scheduler_plateau": scheduler_plateau.state_dict(),
+            },
         }
 
         torch.save(ckpt, ckpt_path)
 
         if min_val_mae > step_mae:
             min_val_mae = step_mae
-            torch.save(ckpt, best_ckpt_path)
+            best_ckpt = ckpt.copy()
+            best_ckpt.pop("continue")
+            torch.save(best_ckpt, best_ckpt_path)
             not_best_epoch = 0
         else:
             not_best_epoch += 1

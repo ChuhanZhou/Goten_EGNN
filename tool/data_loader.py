@@ -2,7 +2,7 @@ import os
 from abc import ABC, abstractmethod
 from torch_geometric.data import download_url,extract_zip
 import numpy as np
-import rdkit
+from torch.utils.data import Subset
 import os.path as osp
 import torch
 from rdkit import Chem,RDLogger
@@ -60,6 +60,7 @@ class DatasetLoader(ABC):
             if i in skip_list:
                 continue
             if mol is None:
+                print("None at {}".format(i))
                 continue
 
             index = init_index+i
@@ -98,6 +99,17 @@ class DatasetLoader(ABC):
         if use_tqdm:
             progress_bar.close()
         return dataset, atom_set
+
+def split_data_by_ids(dataset,split_ids):
+    subsets = []
+    for i,data in enumerate(dataset):
+        id = data[0]
+        for set_i,sub_ids in enumerate(split_ids):
+            if len(subsets)<=set_i:
+                subsets.append([])
+            if id in sub_ids:
+                subsets[set_i].append(i)
+    return [Subset(dataset, sub_index) for sub_index in subsets]
 
 def has_file(file_path):
     if file_path == None:
