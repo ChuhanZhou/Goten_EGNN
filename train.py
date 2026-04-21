@@ -50,18 +50,9 @@ if __name__ == '__main__':
     args.ckpt_def = args.ckpt_def.lower() == "true"
 
     update_model_cfg(args.ver)
+
     if args.title is not None:
         cfg['title'] = args.title
-    if args.seed is not None:
-        cfg['seed'] = args.seed
-    if args.epoch is not None:
-        cfg['epochs'] = args.epoch
-    if args.batch is not None:
-        cfg['batch_size'] = args.batch
-    if args.label is not None:
-        cfg['predict_label'] = args.label
-    if args.mol is not None:
-        cfg['mol_type'] = args.mol
 
     if args.ckpt is None and args.ckpt_def:
         if cfg['mol_type'] is None:
@@ -77,12 +68,29 @@ if __name__ == '__main__':
     if args.ckpt:
         ckpt = torch.load(args.ckpt, weights_only=False)
         update_model_cfg(ckpt["dataset"]["version"])
+        if args.title is not None:
+            cfg['title'] = args.title
         cfg['seed'] = ckpt['seed']
         cfg["predict_label"] = ckpt["label"]
+        if 'mol_type' in ckpt.keys():
+            cfg['mol_type'] = ckpt['mol_type']
         val_mae_history += ckpt["val_history"]
         load_log(ckpt['log'])
     else:
         ckpt = None
+        if args.title is not None:
+            cfg['title'] = args.title
+        if args.seed is not None:
+            cfg['seed'] = args.seed
+        if args.label is not None:
+            cfg['predict_label'] = args.label
+        if args.mol is not None:
+            cfg['mol_type'] = args.mol
+
+    if args.epoch is not None:
+        cfg['epochs'] = args.epoch
+    if args.batch is not None:
+        cfg['batch_size'] = args.batch
 
     dataset = cfg["data_loader"].load(cfg["dataset_path"],cfg['atom_types'],cutoff=cfg["cutoff_radius"],atom_mass_dict=load_atom_mass(),use_tqdm=args.tqdm,preprocess=cfg["preprocess"],key=cfg["mol_type"])
     if cfg["mol_type"] is not None:
@@ -139,6 +147,7 @@ if __name__ == '__main__':
         model.decoder = get_decoder(args.decoder,mean,std)
     model.to(device)
 
+    #scaler = GradScaler()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=cfg['weight_decay'], eps=1e-7)
     scheduler_warmup = LambdaLR(optimizer, lr_lambda=warmup_lambda)
     scheduler_plateau = ReduceLROnPlateau(
@@ -272,6 +281,7 @@ if __name__ == '__main__':
             "model_ckpt":model.state_dict(),
             "seed": seed,
             "label": cfg["predict_label"],
+            "mol_type": cfg["mol_type"],
             "dataset": {
                 "version": cfg["model_type"],
                 "train": train_set.indices,
