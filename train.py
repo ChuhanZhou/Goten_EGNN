@@ -52,12 +52,6 @@ if __name__ == '__main__':
 
     update_model_cfg(args.ver)
 
-    args.title = "test_s"
-    args.label = "u"
-    #args.ckpt = "./ckpt/qm9_B_mix_t110000_s0_alpha_best.pth"
-    args.decoder = "scaler_mix"
-    args.ckpt_def = True
-
     if args.title is not None:
         cfg['title'] = args.title
     if args.seed is not None:
