@@ -4,7 +4,6 @@ import sys
 from configs.config import config as cfg,update_model_cfg
 from tool.data_loader import split_data_by_ids
 from models.goten_net import GotenNet
-from models.decoder import get_decoder
 from tool.utils import collate_fn,get_mean_std,load_atom_mass
 from test import test
 from tool.log_utils import print_log,LogFileName,load_log
@@ -45,6 +44,7 @@ if __name__ == '__main__':
     parser.add_argument('--tqdm', help="print progress bar", type=str, default="True")
     parser.add_argument('--ckpt_def', help="continue on default ckpt", type=str, default="False")
     parser.add_argument('--ver', help="model type", type=str, default="qm9_s")
+    parser.add_argument('--rbf', help="radial base function", type=str, default="exp")
     parser.add_argument('--decoder', help="decoder type", type=str, default=None)
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
@@ -139,7 +139,7 @@ if __name__ == '__main__':
 
     print_log("[{}({})] device: {} | random_seed: {} | total: {} | train: {} | val: {} | test: {}".format(cfg["title"],cfg["model_type"], device, seed, len(dataset), len(train_set), len(val_set), len(test_set)))
 
-    model = GotenNet(mean=mean, std=std)
+    model = GotenNet(mean=mean, std=std, rbf_type=args.rbf)
     if args.decoder is not None:
         model.set_decoder(args.decoder,mean,std)
     model.to(device)

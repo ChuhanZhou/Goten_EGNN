@@ -15,14 +15,14 @@ def init_parameters(layer):
             cfg["bias_init"](layer.bias)
 
 class GotenNet(nn.Module):
-    def __init__(self, out_label=None, mean=0, std=1):
+    def __init__(self, out_label=None, mean=0, std=1, rbf_type="exp"):
         super().__init__()
         if out_label is None:
             out_label=cfg["predict_label"]
         self.register_buffer("mean", torch.tensor(mean, dtype=torch.float32))
         self.register_buffer("std", torch.tensor(std, dtype=torch.float32))
 
-        self.embedding = Embedding()
+        self.embedding = Embedding(rbf_type=rbf_type)
 
         self.gata_list = nn.ModuleList()
         self.eqff_list = nn.ModuleList()
@@ -80,7 +80,7 @@ class ExponentialRBFLayer(nn.Module):
     '''
     Exponential Gaussian Smearing Radial Base Function
     '''
-    def __init__(self, out_features, start=None, end=1.0, cutoff=cfg["cutoff_radius"]):
+    def __init__(self, out_features, start=None, end=1.0, cutoff=cfg["cutoff_radius"], learnable=False):
         super().__init__()
         self.cutoff = cutoff
         if start is None:
@@ -95,11 +95,26 @@ class ExponentialRBFLayer(nn.Module):
         self.register_buffer("gammas", gammas)
         self.alpha = 5.0 / cutoff
 
+        if learnable:
+            self.centers = nn.Parameter(self.centers)
+            self.gammas = nn.Parameter(self.gammas)
+
     def forward(self, x):
         centers = self.centers.unsqueeze(0)
         x_exp = torch.exp(self.alpha * (-x))
         dist = (x_exp - centers) ** 2
         return torch.exp(-self.gammas*dist)# * cos_cutoff(x,self.cutoff)
+
+def get_rbf(rbf_type, out_features, start=None, end=1.0, cutoff=cfg["cutoff_radius"]):
+    match (rbf_type):
+        case "exp":  # dipole moment
+            return ExponentialRBFLayer(out_features=out_features, start=start, end=end, cutoff=cutoff,learnable=False)
+        case "exp_l":  # dipole moment
+            return ExponentialRBFLayer(out_features=out_features, start=start, end=end, cutoff=cutoff,learnable=True)
+        case "mlp":  # isotropic polarizability
+            return MLP(in_features=1,out_features=out_features)
+        case other:
+            raise NotImplementedError("No radial base function: {}".format(rbf_type))
 
 def cos_cutoff(r,r_cut=cfg["cutoff_radius"]):
     mask = r<r_cut
@@ -107,9 +122,9 @@ def cos_cutoff(r,r_cut=cfg["cutoff_radius"]):
     return cutoff * mask
 
 class Embedding(nn.Module):
-    def __init__(self):
+    def __init__(self, rbf_type="exp"):
         super().__init__()
-        self.rbf = ExponentialRBFLayer(cfg["rbf_num"])
+        self.rbf = get_rbf(rbf_type,cfg["rbf_num"])
 
         self.w_ndp = nn.Linear(cfg["rbf_num"],cfg["node_dim"])
         self.a_nbr = nn.Embedding(len(cfg["atom_types"]),cfg["node_dim"])
