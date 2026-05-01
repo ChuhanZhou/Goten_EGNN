@@ -219,15 +219,20 @@ class ElectronicSpatialExtentDecoder(GraphDecoder):
 class EnergyForceDecoder(GraphDecoder):
     def __init__(self,in_features,hidden_dim=None,mean=0,std=1):
         super().__init__(mean, std)
+
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
         self.decoder = ExtensiveScalerDecoder(in_features, hidden_dim)
+        #self.decoder = nn.Linear(in_features, 1)
 
     def forward(self, pos, scaler, vector, batch_index):
         energy_out = self.decoder(pos, scaler, vector, batch_index)
+        #energy_out = scatter(self.decoder(scaler), batch_index, dim=0, reduce="sum")
 
+        #energy_out = self.destandardize(energy_out)
         energy = energy_out
+        energy_out = self.destandardize(energy_out)
 
         force_out = -grad(
             outputs=energy,
@@ -236,5 +241,7 @@ class EnergyForceDecoder(GraphDecoder):
             create_graph=True,
             retain_graph=True,
         )[0]
+
+        force_out = force_out * self.std
 
         return [energy_out, force_out]

@@ -37,13 +37,15 @@ config = {
     'weight_init': nn.init.xavier_uniform_,
     'bias_init': nn.init.zeros_,
     'combine_heads': False,
-    #'vec_rej': False,
+    'vec_rej': False,
 
     'predict_label': None,
     'mol_type': None,
 }
 
-config['high_degree_sizes'] = [2*i+1 for i in range(1,config['degree_max']+1)]
+degree_comp_num = [2*i+1 for i in range(1,config['degree_max']+1)]
+comp_degree_i = torch.repeat_interleave(torch.arange(config['degree_max']), torch.tensor(degree_comp_num))
+config['high_degree_sizes'] = [degree_comp_num,comp_degree_i]
 
 def update_model_cfg(cfg_type):
     config['model_type'] = cfg_type

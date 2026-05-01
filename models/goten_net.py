@@ -27,13 +27,13 @@ class GotenNet(nn.Module):
         self.gata_list = nn.ModuleList()
         self.eqff_list = nn.ModuleList()
         for i in range(cfg["layer_num"]):
-            self.gata_list.append(GATA(init_X=i==0))
+            self.gata_list.append(GATA(init_X=i==0,is_last=i==cfg["layer_num"]-1))
             self.eqff_list.append(EQFF())
 
-        self.set_decoder(out_label, mean, std)
         self.apply(init_parameters)
+        self.set_decoder(out_label, mean, std)
 
-    def set_decoder(self,decoder_type, mean=0, std=1):
+    def set_decoder(self, decoder_type, mean=0, std=1):
         self.decoder = get_decoder(decoder_type, mean, std)
         self.decoder_type = decoder_type
 
@@ -41,7 +41,7 @@ class GotenNet(nn.Module):
         n_j, n_i = edge_index
 
         if self.decoder_type == "e&f":
-            atoms_pos = atoms_pos.clone().detach().requires_grad_(True)
+            atoms_pos.requires_grad_()
         x_e = atoms_pos[n_i] - atoms_pos[n_j]
         r_ij,h,t_ij,X = self.embedding(x_n,x_e,edge_index)
 
@@ -152,7 +152,7 @@ class Embedding(nn.Module):
 
         #Edge Tensor Representation
         r_0 = torch.norm(p, dim=1).unsqueeze(1)
-        r_ij = [r_0] + list(torch.split(self.sphere(p/r_0)[:, 1:], cfg["high_degree_sizes"], dim=1))
+        r_ij = [r_0] + list(torch.split(self.sphere(p/r_0)[:, 1:], cfg["high_degree_sizes"][0], dim=1))
 
         n_j,n_i = edge_index
         rbf_0 = self.rbf(r_0)
@@ -206,8 +206,8 @@ class SelfAttentionLayer(nn.Module):
         norm = norm[n_i]
 
         a_i = self.dropout(a_i * norm)
-        sea_ij = a_i * v_j
-        sea_ij = sea_ij.flatten(1)
+        sea_ij = a_i * v_j #[E,H,D*5/H]
+        sea_ij = sea_ij.flatten(1) #[E,D*5]
 
         # not in the paper
         if self.combine_heads is not None:
@@ -234,8 +234,9 @@ class HTR(nn.Module):
         ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j] #[E,8,256]
 
         # vector rejection is not mentioned in the paper, but is a part of official implementation
-        #eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"], dim=1))], dim=1)
-        #ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"], dim=1))], dim=1)
+        if cfg['vec_rej']:
+            eq_i = torch.cat([self.vector_rejection(eq_l_i,r_ij[i]) for i,eq_l_i in enumerate(torch.split(eq_i, cfg["high_degree_sizes"][0], dim=1))], dim=1)
+            ek_j = torch.cat([self.vector_rejection(ek_l_j,-r_ij[i]) for i,ek_l_j in enumerate(torch.split(ek_j, cfg["high_degree_sizes"][0], dim=1))], dim=1)
 
         w_ij = (eq_i * ek_j).sum(dim=1) #[E,256]
 
@@ -251,7 +252,7 @@ class HTR(nn.Module):
         return x - vec_proj * r_l_ij
 
 class GATA(nn.Module):
-    def __init__(self,init_X=False):
+    def __init__(self,init_X=False,is_last=False):
         super().__init__()
 
         self.htr = HTR()
@@ -260,6 +261,7 @@ class GATA(nn.Module):
             S = 1 + cfg["degree_max"] # initialize X in first GATA
         else:
             S = 1 + 2*cfg["degree_max"]
+        self.is_last = is_last
         self.sea = SelfAttentionLayer(S * cfg["node_dim"])
         self.w_rs = nn.Linear(cfg["edge_dim"], S * cfg["node_dim"])
         self.mlp_s = MLP(in_features=cfg["node_dim"],out_features=S * cfg["node_dim"])
@@ -267,10 +269,6 @@ class GATA(nn.Module):
     def forward(self, h, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
         r_0 = r_ij[0]
-
-        if X is not None:
-            dt_ij = self.htr(X, t_ij, r_ij[1:], edge_index)
-            t_ij = t_ij + dt_ij
 
         sea_ij = self.sea(h, t_ij, edge_index)
 
@@ -297,7 +295,12 @@ class GATA(nn.Module):
                 dX_l = scatter(o_ij_d[:,i:i+1,:] * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(h),reduce="sum")
                 X.append(dX_l)
 
+        if not self.is_last:
+            dt_ij = self.htr(X, t_ij, r_ij[1:], edge_index)
+            t_ij = t_ij + dt_ij
+
         return h, X, t_ij
+
 
 class EQFF(nn.Module):
     '''
@@ -319,6 +322,6 @@ class EQFF(nn.Module):
 
         h = h + m1
         X_ls = X_ls + m2.unsqueeze(1) * X_vu
-        X = list(torch.split(X_ls, cfg["high_degree_sizes"], dim=1))
+        X = list(torch.split(X_ls, cfg["high_degree_sizes"][0], dim=1))
         return h, X
 

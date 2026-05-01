@@ -13,8 +13,6 @@ import datetime
 import torch
 import time
 from torch.optim.lr_scheduler import LambdaLR,ReduceLROnPlateau
-from torch.utils.data import random_split, Subset
-from torch.amp import autocast, GradScaler
 import numpy as np
 import random
 import argparse
@@ -27,10 +25,10 @@ def warmup_lambda(current_step):
         return float(current_step) / float(max(1, cfg["warmup"]))
     return 1.0
 
-def get_epoch_dataloader(base_seed , epoch, dataset, batch_size, collate_fn):
+def get_epoch_dataloader(base_seed , epoch, dataset, batch_size, collate_fn,shuffle=True,drop_last=True):
     g = torch.Generator()
     g.manual_seed(base_seed + epoch)
-    return torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, generator=g, shuffle=True, collate_fn=collate_fn,drop_last=True)
+    return torch.utils.data.DataLoader(dataset=dataset, batch_size=batch_size, generator=g, shuffle=shuffle, collate_fn=collate_fn,drop_last=drop_last)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Training model")
@@ -45,10 +43,12 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt_def', help="continue on default ckpt", type=str, default="False")
     parser.add_argument('--ver', help="model type", type=str, default="qm9_s")
     parser.add_argument('--rbf', help="radial base function", type=str, default="exp")
+    parser.add_argument('--vr', help="vector rejection", type=str, default="False")
     parser.add_argument('--decoder', help="decoder type", type=str, default=None)
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
     args.ckpt_def = args.ckpt_def.lower() == "true"
+    args.vr = args.vr.lower() == "true"
 
     update_model_cfg(args.ver)
 
@@ -60,6 +60,7 @@ if __name__ == '__main__':
         cfg['predict_label'] = args.label
     if args.mol is not None:
         cfg['mol_type'] = args.mol
+    cfg['vec_rej'] = args.vr
 
     if args.ckpt is None and args.ckpt_def:
         if cfg['mol_type'] is None:
@@ -190,7 +191,7 @@ if __name__ == '__main__':
             break
 
         model.train()
-        train_dataloader = get_epoch_dataloader(base_seed=seed,epoch=epoch,dataset=train_set,batch_size=batch_size,collate_fn=collate_fn)
+        train_dataloader = get_epoch_dataloader(base_seed=seed,epoch=epoch,dataset=train_set,batch_size=batch_size,collate_fn=collate_fn,drop_last=cfg['predict_label']!="e&f")
 
         if args.tqdm:
             time.sleep(0.01)
@@ -208,10 +209,10 @@ if __name__ == '__main__':
                 loss = 0
                 for s_i,sub_prop_value in enumerate(prop_value):
                     sub_prop_value = sub_prop_value.to(device)
-                    if s_i == 0:
-                        sub_prop_value = model.standardize(sub_prop_value)
-                    else:
-                        sub_prop_value = sub_prop_value/model.std
+                    #if s_i == 0:
+                    #    sub_prop_value = model.standardize(sub_prop_value)
+                    #else:
+                    #    sub_prop_value = sub_prop_value/model.std
                     sub_loss = cfg["loss_func"](out[s_i], sub_prop_value)
                     loss+=cfg["loss_weights"][s_i]*sub_loss
             else: # for QM9 and molecule3d
@@ -219,6 +220,7 @@ if __name__ == '__main__':
                 loss = cfg["loss_func"](out,std_prop_value)
 
             lr = optimizer.param_groups[0]['lr']
+            optimizer.zero_grad()
             if torch.isfinite(loss):
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["grad_clip"])
@@ -227,7 +229,6 @@ if __name__ == '__main__':
 
                 if scheduler_warmup.last_epoch < cfg["warmup"]:
                     scheduler_warmup.step()
-            optimizer.zero_grad()
 
             avg_loss = np.mean(total_loss) if len(total_loss) > 0 else 0
             if args.tqdm:
@@ -251,7 +252,7 @@ if __name__ == '__main__':
         val_mae_history.append(step_mae)
         scheduler_plateau.step(step_mae)
 
-        epoch_result = "[epoch]:{} [lr]:{:.3e} [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):".format(epoch, lr, avg_loss, val_loss, cfg["predict_label"])
+        epoch_result = "[epoch]:{} [lr]:{:.3e} [nan_rate]: {:.1f}% [avg_loss]:{:.3e} [val_loss]:{:.3e} [MAE]: ({}):".format(epoch, lr, (1-len(total_loss)/len(train_dataloader))*100, avg_loss, val_loss, cfg["predict_label"])
         val_results = []
         if has_sub_prop:
             for sub_mae in val_mae:

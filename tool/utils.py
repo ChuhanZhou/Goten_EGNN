@@ -50,6 +50,7 @@ def get_mean_std(prop_dict_list,prop_labels = None):
     for prop_dict in prop_dict_list:
         if prop_labels is None:
             prop_labels = list(prop_dict.keys())
+
         prop_values.append([prop_dict[l] if l != "e&f" else prop_dict[l][0] for l in prop_labels])
 
     prop_values = np.array(prop_values)
@@ -57,7 +58,7 @@ def get_mean_std(prop_dict_list,prop_labels = None):
     mean = prop_values.mean(axis=0)
     std = prop_values.std(axis=0)
 
-    return {l: (mean[i],std[i]) for i,l in enumerate(prop_labels) }
+    return {l: (mean[i],std[i]) for i,l in enumerate(prop_labels)}
 
 def load_atom_mass(file_path=None):
     if file_path == None:

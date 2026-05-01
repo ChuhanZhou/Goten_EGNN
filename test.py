@@ -3,6 +3,7 @@ import sys
 from configs.config import config as cfg,update_model_cfg
 from models.goten_net import GotenNet
 from tool.utils import collate_fn,load_atom_mass,get_mean_std
+from tool.data_loader import split_data_by_ids
 
 from tqdm import tqdm
 import datetime
@@ -20,6 +21,7 @@ def test(model,dataset,title="testing",use_tqdm=True):
 
     model.to(device)
     model.eval()
+    model.requires_grad_(False)
     if device != 'cpu':
         torch.cuda.empty_cache()
 
@@ -42,18 +44,19 @@ def test(model,dataset,title="testing",use_tqdm=True):
             has_sub_prop = True
             loss = 0
             for s_i,sub_prop_value in enumerate(prop_value):
-                if s_i == 0:
-                    std_sub_prop_value = model.standardize(sub_prop_value.to(device))
-                else:
-                    std_sub_prop_value = sub_prop_value.to(device) / model.std
+                std_sub_prop_value = sub_prop_value.to(device)
+                #if s_i == 0:
+                #    std_sub_prop_value = model.standardize(std_sub_prop_value)
+                #else:
+                #    std_sub_prop_value = std_sub_prop_value / model.std
                 sub_loss = cfg["loss_func"](out[s_i], std_sub_prop_value)
                 loss+=cfg["loss_weights"][s_i]*sub_loss
 
                 sub_out = out[s_i]
-                if s_i == 0:
-                    sub_out = model.destandardize(sub_out)
-                else:
-                    sub_out = sub_out * model.std
+                #if s_i == 0:
+                #    sub_out = model.destandardize(sub_out)
+                #else:
+                #    sub_out = sub_out * model.std
                 sub_target = sub_prop_value
 
                 if len(out_list) <= s_i:
@@ -85,10 +88,6 @@ def test(model,dataset,title="testing",use_tqdm=True):
             sub_outs = np.concatenate(out_list[i], axis=0)
             sub_targets = np.concatenate(target_list[i], axis=0)
             sub_mae = np.mean(np.abs(sub_targets - sub_outs))
-            #if i==0:
-            #    sub_mae = np.mean(np.abs(sub_targets - sub_outs))
-            #else:
-            #    sub_mae = np.sum(np.linalg.norm(sub_targets - sub_outs, axis=1)) / len(dataset)
             sub_out_labels = np.concatenate([sub_outs,sub_targets],axis=1)
             out_labels.append(sub_out_labels)
             mae.append(sub_mae)
@@ -98,12 +97,16 @@ def test(model,dataset,title="testing",use_tqdm=True):
         mae = np.mean(np.abs(targets - outs))
         out_labels = np.concatenate([outs,targets],axis=1)
 
+    model.requires_grad_(True)
     return avg_loss,mae,out_labels
 
 MODEL_TARGET_LIST = ["alpha","gap","homo","lumo","mu","mu_3d","cv","g","h","r2","u","u0","zpve","e&f"]
+MODEL_MOL_LIST = ["aspirin","azobenzene","benzene","ethanol","malonaldehyde","naphthalene","paracetamol","salicylic","toluene","uracil"]
+
 
 if __name__ == '__main__':
     title_label = "qm9_B_t110000_s0"
+    #title_label = "rmd17_t950_s0"
     test_results = {}
     test_stds = []
     test_logs = []
@@ -111,7 +114,7 @@ if __name__ == '__main__':
     train_set = val_set = test_set = dataset = None
     print_4f = False
 
-    for target in MODEL_TARGET_LIST:
+    for target in MODEL_TARGET_LIST+MODEL_MOL_LIST:
         ckpt_path = "./ckpt/{}_{}_best.pth".format(title_label,target)
         if not os.path.isfile(ckpt_path):
             continue
@@ -124,13 +127,14 @@ if __name__ == '__main__':
             if cfg["mol_type"] is not None:
                 dataset = dataset[cfg["mol_type"]]
 
-            train_set = Subset(dataset, ckpt["dataset"]["train"])
-            val_set = Subset(dataset, ckpt["dataset"]["valid"])
-            test_set = Subset(dataset, ckpt["dataset"]["test"])
+            train_set, val_set, test_set = split_data_by_ids(dataset, [ckpt["dataset"]["train"],ckpt["dataset"]["valid"], ckpt["dataset"]["test"]])
 
         cfg['predict_label'] = ckpt["label"]
 
+        #cfg['device'] = "cpu"
+        cfg['batch_size'] = 16
         model = GotenNet()
+        model.set_decoder(ckpt["decoder"])
         model.load_state_dict(ckpt["model_ckpt"], strict=True)
 
         #val_loss, val_mae, _ = test(model, val_set, title="val_set")
