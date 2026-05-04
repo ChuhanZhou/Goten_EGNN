@@ -64,14 +64,13 @@ if __name__ == '__main__':
 
     if args.ckpt is None and args.ckpt_def:
         if cfg['mol_type'] is None:
-            args.ckpt = "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], cfg["train_size"], cfg['seed'], cfg["predict_label"])
+            args.ckpt = "{}/{}_t{}_s{}_{}.pth".format(cfg['ckpt_path'], cfg['title'], cfg["train_size"], cfg['seed'], cfg["predict_label"])
         else:
-            args.ckpt = "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], cfg["train_size"], cfg['seed'], cfg["mol_type"])
+            args.ckpt = "{}/{}_t{}_s{}_{}.pth".format(cfg['ckpt_path'], cfg['title'], cfg["train_size"], cfg['seed'], cfg["mol_type"])
 
     if args.ckpt and not os.path.isfile(args.ckpt):
         print_log("Can't find ckpt at [{}]".format(args.ckpt))
         args.ckpt = None
-
 
     if args.ckpt:
         ckpt = torch.load(args.ckpt, weights_only=False)
@@ -135,8 +134,7 @@ if __name__ == '__main__':
 
         train_set, val_set, test_set = cfg["data_loader"].split_data(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len],seed,cfg["dataset_path"],cfg["split_key"])
 
-    prop_mean_std = get_mean_std([data[-1] for data in train_set],[cfg["predict_label"]])
-    mean, std = prop_mean_std[cfg["predict_label"]]
+    mean, std  = get_mean_std([data[-1] for data in train_set],cfg["predict_label"])
 
     print_log("[{}({})] device: {} | random_seed: {} | total: {} | train: {} | val: {} | test: {}".format(cfg["title"],cfg["model_type"], device, seed, len(dataset), len(train_set), len(val_set), len(test_set)))
 
@@ -180,8 +178,8 @@ if __name__ == '__main__':
                     not_best_epoch += 1
 
     sub_label = cfg["predict_label"] if  cfg["mol_type"] is None else cfg["mol_type"]
-    ckpt_path = "./ckpt/{}_t{}_s{}_{}.pth".format(cfg['title'], cfg["train_size"], seed, sub_label)
-    best_ckpt_path = "./ckpt/{}_t{}_s{}_{}_best.pth".format(cfg['title'], cfg["train_size"], seed, sub_label)
+    ckpt_path = "{}/{}_t{}_s{}_{}.pth".format(cfg['ckpt_path'], cfg['title'], cfg["train_size"], seed, sub_label)
+    best_ckpt_path = "{}/{}_t{}_s{}_{}_best.pth".format(cfg['ckpt_path'], cfg['title'], cfg["train_size"], seed, sub_label)
 
     start_epoch = len(val_mae_history)
     has_sub_prop = False

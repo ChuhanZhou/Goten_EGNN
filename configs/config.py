@@ -9,6 +9,7 @@ config = {
         "url": "https://pubchem.ncbi.nlm.nih.gov/rest/pug/periodictable/JSON",
     },
     'log_path': "./log",
+    'ckpt_path': "./ckpt",
     'device': "cuda:0" if torch.cuda.is_available() else "cpu",
     'seed': 0,
     'preprocess': True,

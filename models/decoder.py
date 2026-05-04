@@ -81,7 +81,7 @@ def get_decoder(label,mean=0,std=1):
         case "r2": # electronic spatial extent
             return ElectronicSpatialExtentDecoder(cfg["node_dim"],mean=mean,std=std)
         case "zpve": # zero point vibrational energy
-            return IntensiveScalerDecoder(cfg["node_dim"])
+            return ExtensiveScalerDecoder(cfg["node_dim"])
         case "u0": # internal energy at 0K
             return ExtensiveScalerDecoder(cfg["node_dim"])
         case "u": # internal energy at 298.15K
@@ -230,9 +230,9 @@ class EnergyForceDecoder(GraphDecoder):
         energy_out = self.decoder(pos, scaler, vector, batch_index)
         #energy_out = scatter(self.decoder(scaler), batch_index, dim=0, reduce="sum")
 
-        #energy_out = self.destandardize(energy_out)
-        energy = energy_out
         energy_out = self.destandardize(energy_out)
+        energy = energy_out
+        #energy_out = self.destandardize(energy_out)
 
         force_out = -grad(
             outputs=energy,
@@ -242,6 +242,6 @@ class EnergyForceDecoder(GraphDecoder):
             retain_graph=True,
         )[0]
 
-        force_out = force_out * self.std
+        #force_out = force_out * self.std
 
         return [energy_out, force_out]

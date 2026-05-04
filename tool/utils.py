@@ -45,20 +45,21 @@ def collate_fn(batch):
     atoms_batch_index = torch.cat(atoms_batch_index)
     return batch_atoms_pos, batch_atoms_types, batch_edge_index, batch_prop, atoms_batch_index
 
-def get_mean_std(prop_dict_list,prop_labels = None):
+def get_mean_std(prop_dict_list,prop_label):
     prop_values = []
+    mean = 0
+    std = 1
+
     for prop_dict in prop_dict_list:
-        if prop_labels is None:
-            prop_labels = list(prop_dict.keys())
+        if prop_label in prop_dict:
+            prop_values.append(prop_dict[prop_label] if prop_label != "e&f" else prop_dict[prop_label][0])
 
-        prop_values.append([prop_dict[l] if l != "e&f" else prop_dict[l][0] for l in prop_labels])
+    if len(prop_values)>0:
+        prop_values = np.array(prop_values)
+        mean = prop_values.mean()
+        std = prop_values.std()
 
-    prop_values = np.array(prop_values)
-
-    mean = prop_values.mean(axis=0)
-    std = prop_values.std(axis=0)
-
-    return {l: (mean[i],std[i]) for i,l in enumerate(prop_labels)}
+    return mean,std
 
 def load_atom_mass(file_path=None):
     if file_path == None:
