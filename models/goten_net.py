@@ -17,8 +17,7 @@ def init_parameters(layer):
 class GotenNet(nn.Module):
     def __init__(self, out_label=None, mean=0, std=1, rbf_type="exp"):
         super().__init__()
-        if out_label is None:
-            out_label=cfg["predict_label"]
+        self.out_label=cfg["predict_label"] if out_label is None else out_label
         self.register_buffer("mean", torch.tensor(mean, dtype=torch.float32))
         self.register_buffer("std", torch.tensor(std, dtype=torch.float32))
 
@@ -31,7 +30,7 @@ class GotenNet(nn.Module):
             self.eqff_list.append(EQFF())
 
         self.apply(init_parameters)
-        self.set_decoder(out_label, mean, std)
+        self.set_decoder(self.out_label, mean, std)
 
     def set_decoder(self, decoder_type, mean=0, std=1):
         self.decoder = get_decoder(decoder_type, mean, std)
@@ -61,7 +60,7 @@ class GotenNet(nn.Module):
 
 class GaussianRBFLayer(nn.Module):
     '''
-    Learnable Gaussian Smearing Radial Base Function
+    Learnable Gaussian Smearing Radial Basis Function
     '''
     def __init__(self, out_features, start=0.0, end=cfg["cutoff_radius"]):
         super().__init__()
@@ -78,7 +77,7 @@ class GaussianRBFLayer(nn.Module):
 
 class ExponentialRBFLayer(nn.Module):
     '''
-    Exponential Gaussian Smearing Radial Base Function
+    Exponential Gaussian Smearing Radial Basis Function
     '''
     def __init__(self, out_features, start=None, end=1.0, cutoff=cfg["cutoff_radius"], learnable=False):
         super().__init__()
@@ -107,11 +106,11 @@ class ExponentialRBFLayer(nn.Module):
 
 def get_rbf(rbf_type, out_features, start=None, end=1.0, cutoff=cfg["cutoff_radius"]):
     match (rbf_type):
-        case "exp":  # dipole moment
+        case "exp":
             return ExponentialRBFLayer(out_features=out_features, start=start, end=end, cutoff=cutoff,learnable=False)
-        case "exp_l":  # dipole moment
+        case "exp_l":
             return ExponentialRBFLayer(out_features=out_features, start=start, end=end, cutoff=cutoff,learnable=True)
-        case "mlp":  # isotropic polarizability
+        case "mlp":
             return MLP(in_features=1,out_features=out_features)
         case other:
             raise NotImplementedError("No radial base function: {}".format(rbf_type))
@@ -173,6 +172,7 @@ class SelfAttentionLayer(nn.Module):
     def __init__(self,out_features):
         super().__init__()
         self.head_num = cfg["attention_heads"]
+        self.out_features = out_features
         assert out_features % self.head_num == 0
 
         self.w_q = nn.Linear(cfg["node_dim"], cfg["node_dim"])
@@ -185,9 +185,7 @@ class SelfAttentionLayer(nn.Module):
         self.act_fn = cfg["activation"]
         self.dropout = nn.Dropout(cfg["dropout"])
 
-        self.combine_heads = None
-        if cfg["combine_heads"]:
-            self.combine_heads = nn.Linear(in_features=out_features,out_features=out_features,bias=True)
+        self.combine_heads = nn.Linear(in_features=out_features,out_features=out_features,bias=True) if cfg["combine_heads"] else None
 
     def forward(self, h, t_ij, edge_index):
         n_j, n_i = edge_index
@@ -204,18 +202,20 @@ class SelfAttentionLayer(nn.Module):
         n_i_edges = scatter(torch.ones([len(n_i),1,1],device=n_i.device),n_i,dim=0,reduce="sum")
         norm = torch.sqrt(n_i_edges) / math.sqrt(cfg["node_dim"])
         norm = norm[n_i]
+        a_i = a_i * norm
 
-        a_i = self.dropout(a_i * norm)
+        a_i = self.dropout(a_i)
         sea_ij = a_i * v_j #[E,H,D*5/H]
         sea_ij = sea_ij.flatten(1) #[E,D*5]
 
         # not in the paper
         if self.combine_heads is not None:
             sea_ij = self.combine_heads(sea_ij)
-            sea_ij = self.dropout(sea_ij)
+            #sea_ij = self.dropout(sea_ij)
         return sea_ij
 
 class HTR(nn.Module):
+    # Hierarchical Tensor Refinement
     def __init__(self):
         super().__init__()
         self.w_vq = nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=False)
@@ -255,16 +255,15 @@ class GATA(nn.Module):
     def __init__(self,init_X=False,is_last=False):
         super().__init__()
 
-        self.htr = HTR()
+        self.htr = HTR() if not is_last else None
 
         if init_X:
-            S = 1 + cfg["degree_max"] # initialize X in first GATA
+            self.S = 1 + cfg["degree_max"] # initialize X in first GATA
         else:
-            S = 1 + 2*cfg["degree_max"]
-        self.is_last = is_last
-        self.sea = SelfAttentionLayer(S * cfg["node_dim"])
-        self.w_rs = nn.Linear(cfg["edge_dim"], S * cfg["node_dim"])
-        self.mlp_s = MLP(in_features=cfg["node_dim"],out_features=S * cfg["node_dim"])
+            self.S = 1 + 2*cfg["degree_max"]
+        self.sea = SelfAttentionLayer(self.S * cfg["node_dim"])
+        self.w_rs = nn.Linear(cfg["edge_dim"], self.S * cfg["node_dim"])
+        self.mlp_s = MLP(in_features=cfg["node_dim"],out_features=self.S * cfg["node_dim"])
 
     def forward(self, h, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
@@ -295,7 +294,7 @@ class GATA(nn.Module):
                 dX_l = scatter(o_ij_d[:,i:i+1,:] * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(h),reduce="sum")
                 X.append(dX_l)
 
-        if not self.is_last:
+        if self.htr is not None:
             dt_ij = self.htr(X, t_ij, r_ij[1:], edge_index)
             t_ij = t_ij + dt_ij
 
