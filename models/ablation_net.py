@@ -1,6 +1,6 @@
 from configs.config import config as cfg
 from models.decoder import MLP,get_decoder
-from models.goten_net import GotenNet,SelfAttentionLayer,init_parameters
+from models.goten_net import GotenNet,init_parameters,SelfAttentionLayer,HTR
 
 import torch
 import torch.nn as nn
@@ -21,7 +21,10 @@ class AblationNet(GotenNet):
                     gata.sea = CombineHeadSEA(gata.S * cfg["node_dim"], cfg["node_dim"])
             case "sea_no":
                 for gata in self.gata_list:
-                    gata.sea = NoSEA(gata.S * cfg["node_dim"])
+                    gata.sea = NoSEAButWeight(gata.S * cfg["node_dim"])
+            case "sea_norm":
+                for gata in self.gata_list:
+                    gata.sea = NoSEAButNorm(gata.S * cfg["node_dim"])
             case other:
                 raise NotImplementedError("Unknown ablation study type: {}".format(other))
 
@@ -61,7 +64,7 @@ class CombineHeadSEA(SelfAttentionLayer):
 
         self.combine_heads = nn.Linear(in_features=attn_dim, out_features=out_features, bias=True)
 
-class NoSEA(SelfAttentionLayer):
+class NoSEAButWeight(SelfAttentionLayer):
     def __init__(self,out_features):
         super().__init__(out_features)
 
@@ -91,3 +94,25 @@ class NoSEA(SelfAttentionLayer):
         sea_ij = a_i * v_j  # [E,D*5]
 
         return sea_ij
+
+class NoSEAButNorm(SelfAttentionLayer):
+    def __init__(self,out_features):
+        super().__init__(out_features)
+
+    def forward(self, h, t_ij, edge_index):
+        n_j, n_i = edge_index
+
+        v_j = self.mlp_v(h)[n_j]
+
+        n_i_edges = scatter(torch.ones([len(n_i), 1], device=n_i.device), n_i, dim=0, reduce="sum")
+        norm = torch.sqrt(n_i_edges) / math.sqrt(cfg["node_dim"])
+        #norm = norm[n_i]
+
+        a = 1/n_i_edges
+        a = a * norm
+        a_i = a[n_i]
+        sea_ij = a_i * v_j
+
+        return sea_ij
+
+
