@@ -221,11 +221,10 @@ class HTR(nn.Module):
         self.w_vq = nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=False)
         self.w_vk = nn.ModuleList([nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=False) for _ in range(cfg["degree_max"])])
 
-        # pre-norm is not in the paper, but network has high possibility of exploding (numerical overflow) after depth 4
-        self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"],pre_norm=False)
+        self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"])
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
-    def forward(self, X, t_ij, r_ij, edge_index):
+    def forward(self, h, X, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
         X_ls =  torch.cat(X, dim=1) #[N,8,256]
 
@@ -294,7 +293,7 @@ class GATA(nn.Module):
                 X.append(dX_l)
 
         if self.htr is not None:
-            dt_ij = self.htr(X, t_ij, r_ij[1:], edge_index)
+            dt_ij = self.htr(h, X, t_ij, r_ij[1:], edge_index)
             t_ij = t_ij + dt_ij
 
         return h, X, t_ij
