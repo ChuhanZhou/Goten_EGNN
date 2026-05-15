@@ -147,8 +147,8 @@ class AttHTR(HTR):
         ek_j = ek_j.reshape(ek_j.shape[0],ek_j.shape[1],self.head_num,-1)
         ev_ij = ev_ij.reshape(ev_ij.shape[0],self.head_num,-1) #[E,8,32]
 
-        a_ij = (eq_i * ek_j).sum(dim=1).sum(dim=-1,keepdim=True) #[E,8]
-        a_ij = softmax(a_ij,n_i,dim=0)
+        a_ij = (eq_i * ek_j).sum(dim=1) #[E,8]
+        a_ij = F.softmax(a_ij,dim=-1)
         a_ij = self.dropout(a_ij)
 
         dt_ij = a_ij * ev_ij #[E,256]
