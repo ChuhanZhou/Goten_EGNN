@@ -193,8 +193,9 @@ class SelfAttentionLayer(nn.Module):
         q_i = self.w_q(h).reshape(h.shape[0],self.head_num,-1)[n_i]
         k_j = self.w_k(h).reshape(h.shape[0],self.head_num,-1)[n_j]
         v_j = self.mlp_v(h).reshape(h.shape[0],self.head_num,-1)[n_j]
+        w_j = self.act_fn(self.w_re(t_ij)).reshape(t_ij.shape[0],self.head_num,-1)
 
-        a_ij = (q_i * k_j * self.act_fn(self.w_re(t_ij)).reshape(t_ij.shape[0],self.head_num,-1)).sum(dim=-1,keepdims=True)
+        a_ij = (q_i * (k_j * w_j)).sum(dim=-1,keepdims=True)
         a_i = softmax(a_ij, n_i, num_nodes=h.shape[0], dim=0)
 
         # not in the paper but in the author's code
@@ -229,7 +230,9 @@ class HTR(nn.Module):
         X_ls =  torch.cat(X, dim=1) #[N,8,256]
 
         eq_i = self.w_vq(X_ls)[n_i] #[E,8,256]
-        ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j] #[E,8,256]
+        w_vks = torch.stack([w_l.weight for w_l in self.w_vk])[cfg["high_degree_sizes"][1]]
+        ek_j = torch.einsum('ecf, cfk -> eck', X_ls, w_vks)[n_j]  # [E,8,256]
+        #ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j] #[E,8,256]
 
         # vector rejection is not mentioned in the paper, but is a part of official implementation
         if cfg['vec_rej']:
