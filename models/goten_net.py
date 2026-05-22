@@ -231,7 +231,7 @@ class HTR(nn.Module):
 
         eq_i = self.w_vq(X_ls)[n_i] #[E,8,256]
         w_vks = torch.stack([w_l.weight for w_l in self.w_vk])[cfg["high_degree_sizes"][1]]
-        ek_j = torch.einsum('ecf, cfk -> eck', X_ls, w_vks)[n_j]  # [E,8,256]
+        ek_j = torch.einsum('ecf, ckf -> eck', X_ls, w_vks)[n_j]  # [E,8,256]
         #ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j] #[E,8,256]
 
         # vector rejection is not mentioned in the paper, but is a part of official implementation
