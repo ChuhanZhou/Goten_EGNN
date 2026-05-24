@@ -132,7 +132,7 @@ if __name__ == '__main__':
         cfg['predict_label'] = ckpt["label"]
 
         #cfg['device'] = "cpu"
-        cfg['batch_size'] = 16
+        #cfg['batch_size'] = 16
         model = GotenNet()
         model.set_decoder(ckpt["decoder"])
         model.load_state_dict(ckpt["model_ckpt"], strict=True)
@@ -150,7 +150,7 @@ if __name__ == '__main__':
         test_results[target] = {"mae":test_mae,"out_label":test_out_labels}
         test_stds.append(np.abs(test_out_labels[:,0]-test_out_labels[:,1]).std())
 
-    if "homo" in test_results and "lumo" in test_results:
+    if "homo" in test_results and "lumo" in test_results and "gap" not in test_results:
         gap_out_label = test_results["lumo"]["out_label"]-test_results["homo"]["out_label"]
         gap_mae = np.mean(np.abs(gap_out_label[:, 1] - gap_out_label[:, 0]), axis=0)
         test_results["gap"] = {"mae":gap_mae,"out_label":gap_out_label}

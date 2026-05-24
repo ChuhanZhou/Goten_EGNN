@@ -26,6 +26,9 @@ class AblationNet(GotenNet):
             case "sea_norm":
                 for gata in self.gata_list:
                     gata.sea = NoSEAButNorm(gata.S * cfg["node_dim"])
+            case "htr_no":
+                for gata in self.gata_list:
+                    gata.htr = NoHTR() if gata.htr is not None else None
             case "htr_att":
                 for gata in self.gata_list:
                     gata.htr = AttHTR() if gata.htr is not None else None
@@ -125,7 +128,7 @@ class NoSEAButNorm(SelfAttentionLayer):
 class AttHTR(HTR):
     def __init__(self):
         super().__init__()
-        self.head_num = cfg["attention_heads"]
+        self.head_num = 1#cfg["attention_heads"]
 
         self.mlp_w = None
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_ref_dim"])
@@ -134,24 +137,26 @@ class AttHTR(HTR):
 
         self.dropout = nn.Dropout(cfg["dropout"]) if self.head_num > 1 else nn.Identity()
 
-    def forward(self, h, X, t_ij, r_ij, edge_index):
+    def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
         n_j, n_i = edge_index
         X_ls =  torch.cat(X, dim=1) #[N,8,256]
 
         eq_i = self.w_vq(X_ls)[n_i] #[E,8,256]
-        ek_j = torch.cat([w_vl_l(X[i]) for i, w_vl_l in enumerate(self.w_vk)], dim=1)[n_j] #[E,8,256]
+        w_vks = torch.stack([w_l.weight for w_l in self.w_vk])[cfg["high_degree_sizes"][1]]
+        ek_j = torch.einsum('ecf, ckf -> eck', X_ls, w_vks)[n_j] #[E,8,256]
+
         ev_ij = self.mlp_t(t_ij)
 
         #muti-head
-        eq_i = eq_i.reshape(eq_i.shape[0],eq_i.shape[1],self.head_num,-1)
-        ek_j = ek_j.reshape(ek_j.shape[0],ek_j.shape[1],self.head_num,-1)
+        eq_i = eq_i.reshape(eq_i.shape[0],eq_i.shape[1],self.head_num,-1) #[E,8,8,32]
+        ek_j = ek_j.reshape(ek_j.shape[0],ek_j.shape[1],self.head_num,-1) #[E,8,8,32]
         ev_ij = ev_ij.reshape(ev_ij.shape[0],self.head_num,-1) #[E,8,32]
 
-        a_ij = (eq_i * ek_j).sum(dim=1) #[E,8]
-        a_ij = F.softmax(a_ij,dim=-1)
+        a_ij = (eq_i * ek_j).sum(dim=1)  # [E,8,32]
+        a_ij = F.softmax(a_ij, dim=1)
         a_ij = self.dropout(a_ij)
 
-        dt_ij = a_ij * ev_ij #[E,256]
+        dt_ij = a_ij * ev_ij  # [E,256]
         dt_ij = dt_ij.flatten(1)
 
         dt_ij = self.comb(dt_ij)
@@ -163,7 +168,7 @@ class ScalarHTR(HTR):
         self.w_vq = nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=True)
         self.w_vk = nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=True)
 
-    def forward(self, h, X, t_ij, r_ij, edge_index):
+    def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
         n_j, n_i = edge_index
 
         eq_i = self.w_vq(h)[n_i]
@@ -172,4 +177,16 @@ class ScalarHTR(HTR):
         w_ij = eq_i * ek_j
 
         dt_ij = self.mlp_w(w_ij) * self.mlp_t(t_ij)
+        return dt_ij
+
+class NoHTR(HTR):
+    def __init__(self):
+        super().__init__()
+        self.w_vq = None
+        self.w_vk = None
+        self.mlp_w = None
+        self.mlp_t = MLP(in_features=cfg["edge_dim"], out_features=cfg["edge_dim"])
+
+    def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
+        dt_ij = self.mlp_t(t_ij)
         return dt_ij

@@ -45,7 +45,7 @@ class GotenNet(nn.Module):
         r_ij,h,t_ij,X = self.embedding(x_n,x_e,edge_index)
 
         for i in range(cfg["layer_num"]):
-            h, X, t_ij = self.gata_list[i](h, X, t_ij, r_ij, edge_index)
+            h, X, t_ij = self.gata_list[i](h, X, t_ij, r_ij, edge_index, batch_index)
             h, X = self.eqff_list[i](h, X)
 
         out = self.decoder(atoms_pos, h,X[0],batch_index)
@@ -88,7 +88,6 @@ class ExponentialRBFLayer(nn.Module):
         self.register_buffer("centers", torch.linspace(start, end, out_features))
 
         delta = (end - start) / (out_features-1)
-        #gamma_init = 0.5 * delta ** -2
         gamma_init = (2 * delta) ** -2
         gammas = torch.tensor([gamma_init] * out_features, dtype=torch.float32)
         self.register_buffer("gammas", gammas)
@@ -225,7 +224,7 @@ class HTR(nn.Module):
         self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"])
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])
 
-    def forward(self, h, X, t_ij, r_ij, edge_index):
+    def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
         n_j, n_i = edge_index
         X_ls =  torch.cat(X, dim=1) #[N,8,256]
 
@@ -266,7 +265,7 @@ class GATA(nn.Module):
         self.w_rs = nn.Linear(cfg["edge_dim"], self.S * cfg["node_dim"])
         self.mlp_s = MLP(in_features=cfg["node_dim"],out_features=self.S * cfg["node_dim"])
 
-    def forward(self, h, X, t_ij, r_ij, edge_index):
+    def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
         n_j, n_i = edge_index
         r_0 = r_ij[0]
 
@@ -296,7 +295,7 @@ class GATA(nn.Module):
                 X.append(dX_l)
 
         if self.htr is not None:
-            dt_ij = self.htr(h, X, t_ij, r_ij[1:], edge_index)
+            dt_ij = self.htr(h, X, t_ij, r_ij[1:], edge_index, batch_index)
             t_ij = t_ij + dt_ij
 
         return h, X, t_ij
