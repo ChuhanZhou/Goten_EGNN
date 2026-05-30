@@ -136,10 +136,15 @@ class AttHTR(HTR):
         super().__init__()
         self.head_num = cfg["attention_heads"]
 
-        self.mlp_w = None
-        self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"]*2)
+        edge_ref_dim = cfg["edge_dim"]*2
 
-        self.comb = nn.Linear(in_features=cfg["edge_dim"]*2, out_features=cfg["edge_dim"], bias=True)
+        self.w_vq = nn.Linear(cfg["edge_dim"], edge_ref_dim, bias=False)
+        self.w_vk = nn.ModuleList([nn.Linear(cfg["edge_dim"], edge_ref_dim, bias=False) for _ in range(cfg["degree_max"])])
+
+        self.mlp_w = None
+        self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=edge_ref_dim)
+
+        self.comb = nn.Linear(in_features=edge_ref_dim, out_features=cfg["edge_dim"], bias=True)
 
         self.dropout = nn.Dropout(cfg["dropout"]) if self.head_num > 1 else nn.Identity()
 
