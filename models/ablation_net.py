@@ -1,6 +1,6 @@
 from configs.config import config as cfg
 from models.decoder import MLP,get_decoder
-from models.goten_net import GotenNet,init_parameters,SelfAttentionLayer,HTR
+from models.goten_net import GotenNet,init_parameters,SelfAttentionLayer,HTR,Embedding,EQFF
 
 import torch
 import torch.nn as nn
@@ -10,8 +10,8 @@ from torch_geometric.utils import scatter,softmax
 import math
 
 class AblationNet(GotenNet):
-    def __init__(self, out_label=None, mean=0, std=1, rbf_type="exp",ablation_type=None):
-        super().__init__(out_label,mean,std,rbf_type)
+    def __init__(self, out_label=None, mean=0, std=1, rbf_type="exp", need_guide=False, ablation_type=None):
+        super().__init__(out_label,mean,std,rbf_type,need_guide)
 
         match ablation_type:
             case "sea_sing":
@@ -35,11 +35,17 @@ class AblationNet(GotenNet):
             case "htr_scalar":
                 for gata in self.gata_list:
                     gata.htr = ScalarHTR() if gata.htr is not None else None
+            case "edge_no":
+                self.embedding = NoEdgeEmbedding(rbf_type=rbf_type)
+                for gata in self.gata_list:
+                    gata.sea = NoEdgeSEA(gata.S * cfg["node_dim"])
+                    gata.w_rs = nn.Identity()
+                    gata.htr = None
             case other:
                 raise NotImplementedError("Unknown ablation study type: {}".format(other))
 
         self.apply(init_parameters)
-        self.set_decoder(self.out_label, mean, std)
+        self.set_decoder(self.out_label, mean, std, need_guide)
 
 class SingleHeadSEA(SelfAttentionLayer):
     def __init__(self,out_features):
@@ -128,12 +134,12 @@ class NoSEAButNorm(SelfAttentionLayer):
 class AttHTR(HTR):
     def __init__(self):
         super().__init__()
-        self.head_num = 1#cfg["attention_heads"]
+        self.head_num = cfg["attention_heads"]
 
         self.mlp_w = None
-        self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_ref_dim"])
+        self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"]*2)
 
-        self.comb = nn.Linear(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"], bias=True)
+        self.comb = nn.Linear(in_features=cfg["edge_dim"]*2, out_features=cfg["edge_dim"], bias=True)
 
         self.dropout = nn.Dropout(cfg["dropout"]) if self.head_num > 1 else nn.Identity()
 
@@ -190,3 +196,49 @@ class NoHTR(HTR):
     def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
         dt_ij = self.mlp_t(t_ij)
         return dt_ij
+
+class NoEdgeEmbedding(Embedding):
+    def __init__(self,rbf_type="exp"):
+        super().__init__(rbf_type)
+
+    def forward(self, z, p, edge_index):
+        r_ij,h,t_ij,X = super().forward(z, p, edge_index)
+
+        n_j, n_i = edge_index
+        n_i_edges = scatter(torch.ones([len(n_i), 1], device=n_i.device), n_i, dim=0, reduce="sum")
+        norm = torch.sqrt(n_i_edges) / math.sqrt(cfg["edge_dim"])
+        t_ij = norm[n_i]
+        return r_ij,h,t_ij,X
+
+class NoEdgeSEA(SelfAttentionLayer):
+    def __init__(self,out_features):
+        super().__init__(out_features)
+        self.w_re = None
+
+    def forward(self, h, t_ij, edge_index):
+        n_j, n_i = edge_index
+
+        q_i = self.w_q(h).reshape(h.shape[0],self.head_num,-1)[n_i]
+        k_j = self.w_k(h).reshape(h.shape[0],self.head_num,-1)[n_j]
+        v_j = self.mlp_v(h).reshape(h.shape[0],self.head_num,-1)[n_j]
+
+        a_ij = (q_i * k_j).sum(dim=-1,keepdims=True)
+        a_i = softmax(a_ij, n_i, num_nodes=h.shape[0], dim=0)
+
+        # not in the paper but in the author's code
+        #norm = 1.0 / math.sqrt(cfg["node_dim"])
+        n_i_edges = scatter(torch.ones([len(n_i),1,1],device=n_i.device),n_i,dim=0,reduce="sum")
+        norm = torch.sqrt(n_i_edges) / math.sqrt(cfg["node_dim"])
+        norm = norm[n_i]
+        a_i = a_i * norm
+
+        a_i = self.dropout(a_i)
+        sea_ij = a_i * v_j #[E,H,D*5/H]
+        sea_ij = sea_ij.flatten(1) #[E,D*5]
+
+        # not in the paper
+        if self.combine_heads is not None:
+            sea_ij = self.combine_heads(sea_ij)
+            #sea_ij = self.dropout(sea_ij)
+        return sea_ij
+

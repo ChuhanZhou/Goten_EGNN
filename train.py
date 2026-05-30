@@ -5,6 +5,7 @@ from configs.config import config as cfg,update_model_cfg
 from tool.data_loader import split_data_by_ids
 from models.goten_net import GotenNet
 from models.ablation_net import AblationNet
+#from models.my_net import MyNet
 from tool.utils import collate_fn,get_mean_std,load_atom_mass
 from test import test
 from tool.log_utils import print_log,LogFileName,load_log
@@ -46,11 +47,15 @@ if __name__ == '__main__':
     parser.add_argument('--rbf', help="radial base function", type=str, default="exp")
     parser.add_argument('--vr', help="vector rejection", type=str, default="False")
     parser.add_argument('--decoder', help="decoder type", type=str, default=None)
+    parser.add_argument('--guide', help="add guide decoder", type=str, default="False")
     parser.add_argument('--ablation', help="ablation study type", type=str, default=None)
+    parser.add_argument('--my_net', help="use modified net", type=str, default="False")
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
     args.ckpt_def = args.ckpt_def.lower() == "true"
     args.vr = args.vr.lower() == "true"
+    args.guide = args.guide.lower() == "true"
+    args.my_net = args.my_net.lower() == "true"
 
     update_model_cfg(args.ver)
 
@@ -82,10 +87,11 @@ if __name__ == '__main__':
         cfg['seed'] = ckpt['seed']
         cfg["predict_label"] = ckpt["label"]
         args.decoder = ckpt["decoder"]
-        if 'mol_type' in ckpt.keys():
-            cfg['mol_type'] = ckpt['mol_type']
+
         load_log(ckpt['log'])
-        args.ablation = ckpt["ablation"] if "ablation" in ckpt.keys() else None
+        cfg['mol_type'] = ckpt['mol_type'] if 'mol_type' in ckpt.keys() else cfg['mol_type']
+        args.ablation = ckpt["ablation"] if "ablation" in ckpt.keys() else args.ablation
+        args.guide = ckpt["guide"] if "guide" in ckpt.keys() else args.guide
     else:
         ckpt = None
 
@@ -141,13 +147,15 @@ if __name__ == '__main__':
 
     print_log("[{}({})] device: {} | random_seed: {} | total: {} | train: {} | val: {} | test: {}".format(cfg["title"],cfg["model_type"], device, seed, len(dataset), len(train_set), len(val_set), len(test_set)))
 
-    if args.ablation is None:
-        model = GotenNet(mean=mean, std=std, rbf_type=args.rbf)
+    if args.my_net:
+        model = None#MyNet(mean=mean, std=std)
+    elif args.ablation is None:
+        model = GotenNet(mean=mean, std=std, rbf_type=args.rbf, need_guide=args.guide)
     else:
-        model = AblationNet(mean=mean, std=std, rbf_type=args.rbf, ablation_type=args.ablation)
+        model = AblationNet(mean=mean, std=std, rbf_type=args.rbf, need_guide=args.guide, ablation_type=args.ablation)
 
     if args.decoder is not None:
-        model.set_decoder(args.decoder,mean,std)
+        model.set_decoder(args.decoder,mean,std,args.guide)
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=cfg['weight_decay'], eps=1e-7)
@@ -220,14 +228,25 @@ if __name__ == '__main__':
                     #    sub_prop_value = sub_prop_value/model.std
                     sub_loss = cfg["loss_func"](out[s_i], sub_prop_value)
                     loss+=cfg["loss_weights"][s_i]*sub_loss
+                back_loss = loss
             else: # for QM9 and molecule3d
+                if not isinstance(out, list) and not isinstance(out, tuple):
+                    out = [out]
+                loss = 0
+                guide_loss = 0
                 std_prop_value = model.standardize(prop_value.to(device))
-                loss = cfg["loss_func"](out,std_prop_value)
+                for o_i,sub_out in enumerate(out):
+                    sub_loss = cfg["loss_func"](sub_out,std_prop_value)
+                    if o_i == 0:
+                        loss = sub_loss
+                    else:
+                        guide_loss += sub_loss
+                back_loss = loss + 0.1*guide_loss
 
             lr = optimizer.param_groups[0]['lr']
             optimizer.zero_grad()
-            if torch.isfinite(loss):
-                loss.backward()
+            if torch.isfinite(back_loss):
+                back_loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), cfg["grad_clip"])
                 optimizer.step()
                 total_loss.append(loss.item())
@@ -283,6 +302,7 @@ if __name__ == '__main__':
             "seed": seed,
             "label": cfg["predict_label"],
             "decoder": model.decoder_type,
+            "guide": args.guide,
             "mol_type": cfg["mol_type"],
             "ablation": args.ablation,
             "dataset": {

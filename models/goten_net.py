@@ -15,7 +15,7 @@ def init_parameters(layer):
             cfg["bias_init"](layer.bias)
 
 class GotenNet(nn.Module):
-    def __init__(self, out_label=None, mean=0, std=1, rbf_type="exp"):
+    def __init__(self, out_label=None, mean=0, std=1, rbf_type="exp", need_guide=False):
         super().__init__()
         self.out_label=cfg["predict_label"] if out_label is None else out_label
         self.register_buffer("mean", torch.tensor(mean, dtype=torch.float32))
@@ -30,10 +30,10 @@ class GotenNet(nn.Module):
             self.eqff_list.append(EQFF())
 
         self.apply(init_parameters)
-        self.set_decoder(self.out_label, mean, std)
+        self.set_decoder(self.out_label, mean, std, need_guide)
 
-    def set_decoder(self, decoder_type, mean=0, std=1):
-        self.decoder = get_decoder(decoder_type, mean, std)
+    def set_decoder(self, decoder_type, mean=0, std=1, need_guide=False):
+        self.decoder = get_decoder(decoder_type, mean, std, need_guide)
         self.decoder_type = decoder_type
 
     def forward(self, atoms_pos, x_n, edge_index, batch_index):
