@@ -27,7 +27,7 @@ def print_log(str_info):
 def export_new_log():
     ensure_dir(cfg['log_path'])
     sub_label = cfg["predict_label"] if cfg["mol_type"] is None else cfg["mol_type"]
-    with open("{}/{}_{}.txt".format(cfg['log_path'],LogFileName,sub_label), "a", encoding="utf-8") as file:
+    with open("{}/{}_{}_{}.txt".format(cfg['log_path'],LogFileName,sub_label,cfg["title"]), "a", encoding="utf-8") as file:
         global NewLogStr
         file.write(NewLogStr)
         NewLogStr = ""
@@ -41,7 +41,7 @@ def export_new_log():
 def load_log(file_name):
     sub_label = cfg["predict_label"] if cfg["mol_type"] is None else cfg["mol_type"]
 
-    log_file = "{}/{}_{}.txt".format(cfg['log_path'],file_name,sub_label)
+    log_file = "{}/{}_{}_{}.txt".format(cfg['log_path'],file_name,sub_label,cfg["title"])
     if has_file(log_file):
         with open(log_file, 'r', encoding='utf-8') as file:
             lines = file.readlines()
