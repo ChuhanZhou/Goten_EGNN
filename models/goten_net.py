@@ -186,7 +186,7 @@ class SelfAttentionLayer(nn.Module):
 
         self.combine_heads = nn.Linear(in_features=out_features,out_features=out_features,bias=True) if cfg["combine_heads"] else None
 
-    def forward(self, h, t_ij, edge_index):
+    def forward(self, h, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
 
         q_i = self.w_q(h).reshape(h.shape[0],self.head_num,-1)[n_i]
@@ -195,17 +195,17 @@ class SelfAttentionLayer(nn.Module):
         w_j = self.act_fn(self.w_re(t_ij)).reshape(t_ij.shape[0],self.head_num,-1)
 
         a_ij = (q_i * (k_j * w_j)).sum(dim=-1,keepdims=True)
-        a_i = softmax(a_ij, n_i, num_nodes=h.shape[0], dim=0)
+        a_ij = softmax(a_ij, n_i, num_nodes=h.shape[0], dim=0)
 
         # not in the paper but in the author's code
         #norm = 1.0 / math.sqrt(cfg["node_dim"])
         n_i_edges = scatter(torch.ones([len(n_i),1,1],device=n_i.device),n_i,dim=0,reduce="sum")
         norm = torch.sqrt(n_i_edges) / math.sqrt(cfg["node_dim"])
         norm = norm[n_i]
-        a_i = a_i * norm
+        a_ij = a_ij * norm
 
-        a_i = self.dropout(a_i)
-        sea_ij = a_i * v_j #[E,H,D*5/H]
+        a_ij = self.dropout(a_ij)
+        sea_ij = a_ij * v_j #[E,H,D*5/H]
         sea_ij = sea_ij.flatten(1) #[E,D*5]
 
         # not in the paper
@@ -269,7 +269,7 @@ class GATA(nn.Module):
         n_j, n_i = edge_index
         r_0 = r_ij[0]
 
-        sea_ij = self.sea(h, t_ij, edge_index)
+        sea_ij = self.sea(h, t_ij, r_ij, edge_index)
 
         o_ij = sea_ij + self.w_rs(t_ij) * self.mlp_s(h)[n_j] * cos_cutoff(r_0)
         o_ij = o_ij.view(edge_index.shape[1], -1, cfg["node_dim"])

@@ -252,8 +252,8 @@ class ElectronicSpatialExtentDecoder(GraphDecoder):
         if hidden_dim is None:
             hidden_dim = in_features // 2
 
-        self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim, act_fn=ShiftedSoftplus())
-        #self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim)
+        #self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim, act_fn=ShiftedSoftplus())
+        self.decoder_q = MLP(in_features=in_features, out_features=1, hidden_dim=hidden_dim)
 
     def forward(self, pos, scalar, vector, batch_index):
         q_i = self.decoder_q(scalar)

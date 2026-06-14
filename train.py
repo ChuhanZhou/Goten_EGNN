@@ -5,7 +5,7 @@ from configs.config import config as cfg,update_model_cfg
 from tool.data_loader import split_data_by_ids
 from models.goten_net import GotenNet
 from models.ablation_net import AblationNet
-#from models.my_net import MyNet
+from models.my_net import MyNet
 from tool.utils import collate_fn,get_mean_std,load_atom_mass
 from test import test
 from tool.log_utils import print_log,LogFileName,load_log
@@ -49,13 +49,12 @@ if __name__ == '__main__':
     parser.add_argument('--decoder', help="decoder type", type=str, default=None)
     parser.add_argument('--guide', help="add guide decoder", type=str, default="False")
     parser.add_argument('--ablation', help="ablation study type", type=str, default=None)
-    parser.add_argument('--my_net', help="use modified net", type=str, default="False")
+    parser.add_argument('--my_net', help="use modified net", type=str, default=None)
     args = parser.parse_args()
     args.tqdm = args.tqdm.lower() == "true"
     args.ckpt_def = args.ckpt_def.lower() == "true"
     args.vr = args.vr.lower() == "true"
     args.guide = args.guide.lower() == "true"
-    args.my_net = args.my_net.lower() == "true"
 
     update_model_cfg(args.ver)
 
@@ -91,6 +90,7 @@ if __name__ == '__main__':
         load_log(ckpt['log'])
         cfg['mol_type'] = ckpt['mol_type'] if 'mol_type' in ckpt.keys() else cfg['mol_type']
         args.ablation = ckpt["ablation"] if "ablation" in ckpt.keys() else args.ablation
+        args.my_net = ckpt["net_type"] if "net_type" in ckpt.keys() else args.my_net
         args.guide = ckpt["guide"] if "guide" in ckpt.keys() else args.guide
     else:
         ckpt = None
@@ -143,12 +143,12 @@ if __name__ == '__main__':
 
         train_set, val_set, test_set = cfg["data_loader"].split_data(dataset,[cfg["train_size"],cfg["val_size"],cfg["test_size"],data_drop_len],seed,cfg["dataset_path"],cfg["split_key"])
 
-    mean, std  = get_mean_std([data[-1] for data in train_set],cfg["predict_label"])
+    mean, std = get_mean_std([data[-1] for data in train_set],cfg["predict_label"])
 
     print_log("[{}({})] device: {} | random_seed: {} | total: {} | train: {} | val: {} | test: {}".format(cfg["title"],cfg["model_type"], device, seed, len(dataset), len(train_set), len(val_set), len(test_set)))
 
-    if args.my_net:
-        model = None#MyNet(mean=mean, std=std)
+    if args.my_net is not None:
+        model = MyNet(mean=mean, std=std, net_type=args.my_net)
     elif args.ablation is None:
         model = GotenNet(mean=mean, std=std, rbf_type=args.rbf, need_guide=args.guide)
     else:
@@ -305,6 +305,7 @@ if __name__ == '__main__':
             "guide": args.guide,
             "mol_type": cfg["mol_type"],
             "ablation": args.ablation,
+            "net_type": args.my_net,
             "dataset": {
                 "version": cfg["model_type"],
                 "train": [dataset[d_i][0] for d_i in train_set.indices],
