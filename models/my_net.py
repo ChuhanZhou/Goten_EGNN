@@ -373,15 +373,16 @@ class MySEAOnlyMultibodyGATA(GATA):
         self.w_rs = None
         self.mlp_s = None
 
-        self.body_max = 4
+        self.body_max = cfg["body_max"]
         self.w_hb = nn.ModuleList([nn.Linear(cfg["node_dim"], cfg["node_dim"]) for _ in range(2,self.body_max)]) if scalar_mult else []
         c_n = sum(cfg["high_degree_sizes"][0])
-        self.w_Xb = nn.ModuleList([nn.Linear(c_n*cfg["node_dim"], c_n*cfg["node_dim"],bias=False) for _ in range(2, self.body_max)])
-        self.irreps = o3.Irreps("+".join(["{}x{}{}".format(cfg["node_dim"], l+1, "e"if (l+1)%2 ==0 else "o")  for l in range(cfg["degree_max"])]))
+        self.w_mb = nn.Linear(cfg["node_dim"], cfg["mult_body_dim"], bias=False)
+        self.w_Xb = nn.ModuleList([nn.Linear(c_n*cfg["mult_body_dim"], c_n*cfg["node_dim"],bias=False) for _ in range(2, self.body_max)])
+        self.irreps = o3.Irreps("+".join(["{}x{}{}".format(cfg["mult_body_dim"], l+1, "e"if (l+1)%2 ==0 else "o")  for l in range(cfg["degree_max"])]))
         self.tp = nn.ModuleList([FullyConnectedTensorProduct(
             self.irreps,
             self.irreps,
-            self.irreps
+            self.irreps,
         ) for _ in self.w_Xb])
 
     def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
@@ -419,7 +420,7 @@ class MySEAOnlyMultibodyGATA(GATA):
 
         # 2-body => n-body
         dX_ls = torch.cat(dX, dim=1)
-        dX_b = dX_2b = dX_ls.reshape(h.shape[0],-1) #torch.cat([dX_l.sum(dim=1) for dX_l in dX], dim=1)
+        dX_b = dX_2b = self.w_mb(dX_ls).reshape(h.shape[0],-1) #torch.cat([dX_l.sum(dim=1) for dX_l in dX], dim=1)
         for i,w_X_b in enumerate(self.w_Xb):
             dX_b = self.tp[i](dX_b, dX_2b)
             dX_ls = dX_ls + w_X_b(dX_b).reshape(h.shape[0], -1, cfg["node_dim"])
