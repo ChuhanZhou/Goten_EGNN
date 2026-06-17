@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from configs import qm9_cfg,qm9_s_cfg,molecule3d_cfg,rmd17_cfg,md22_cfg
+from configs import qm9_cfg,qm9_s_cfg,molecule3d_cfg,rmd17_cfg,md22_cfg,qm9_my_cfg
 
 config = {
     'title': None,
@@ -55,6 +55,8 @@ def update_model_cfg(cfg_type):
             config.update(qm9_cfg.config)
         case 'qm9_s':
             config.update(qm9_s_cfg.config)
+        case 'qm9_my':
+            config.update(qm9_my_cfg.config)
         case 'molecule3d':
             config.update(molecule3d_cfg.config)
         case 'rmd17':

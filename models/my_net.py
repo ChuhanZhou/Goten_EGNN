@@ -6,10 +6,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from e3nn import o3
+from e3nn.o3 import FullyConnectedTensorProduct
 from torch_geometric.utils import scatter,softmax
 import math
 
-def mace_edge_basis(rbf,r_ij):
+def ace_edge_basis(rbf,r_ij):
     r_ij_ls = torch.cat(r_ij[1:], dim=1)
     return rbf.unsqueeze(-2) * r_ij_ls.unsqueeze(-1)
 
@@ -33,20 +34,53 @@ class DegreeEdgeWeightLayer(nn.Module):
         w = self.mlp_e(t_e_l2)
         return w
 
+class DegreeEdgeAttentionLayer(nn.Module):
+    def __init__(self, out_features,hidden_dim=None):
+        super().__init__()
+        if hidden_dim is None:
+            hidden_dim = out_features
+
+        self.w_eq = nn.ModuleList([nn.Linear(cfg["edge_dim"], hidden_dim, bias=False) for _ in range(cfg["degree_max"])])
+        self.w_ek = nn.ModuleList([nn.Linear(cfg["edge_dim"], hidden_dim, bias=False) for _ in range(cfg["degree_max"])])
+        self.mlp_e = MLP(in_features=hidden_dim,out_features=out_features)
+
+    def forward(self, t_ij):
+        w_eqs = torch.stack([w_l.weight for w_l in self.w_eq])[cfg["high_degree_sizes"][1]]
+        eq = torch.einsum('ecf, ckf -> eck', t_ij, w_eqs)
+        #eq = self.w_eq(t_ij)
+        w_eks = torch.stack([w_l.weight for w_l in self.w_ek])[cfg["high_degree_sizes"][1]]
+        ek = torch.einsum('ecf, ckf -> eck', t_ij, w_eks)
+        w = self.mlp_e((eq * ek).sum(dim=1))
+        return w
+
 class MyNet(GotenNet):
     def __init__(self, out_label=None, mean=0, std=1, net_type=None):
         super().__init__(out_label,mean,std,"exp",False)
 
         self.gata_list = nn.ModuleList()
         match net_type:
-            case "mace_edge":
+            case "mace":
+                self.embedding = MaceEdgeEmbedding(rbf_type="exp")
+                for i in range(cfg["layer_num"]):
+                    self.gata_list.append(MySEAOnlyMultibodyGATA(init_X=i == 0, is_last=i == cfg["layer_num"] - 1,scalar_mult=False))
+
+                for gata in self.gata_list:
+                    gata.sea = EdgeSEA(gata.S * cfg["node_dim"], cfg["node_dim"])
+            case "mace_scalar":
+                self.embedding = MaceEdgeEmbedding(rbf_type="exp")
+                for i in range(cfg["layer_num"]):
+                    self.gata_list.append(MySEAOnlyMultibodyGATA(init_X=i == 0, is_last=i == cfg["layer_num"] - 1, scalar_mult=True))
+
+                for gata in self.gata_list:
+                    gata.sea = EdgeSEA(gata.S * cfg["node_dim"], cfg["node_dim"])
+            case "ace_edge":
                 self.embedding = MaceEdgeEmbedding(rbf_type="exp")
                 for i in range(cfg["layer_num"]):
                     self.gata_list.append(MySEAOnlyGATA(init_X=i == 0, is_last=i == cfg["layer_num"] - 1))
 
                 for gata in self.gata_list:
                     gata.sea = EdgeSEA(gata.S * cfg["node_dim"], cfg["node_dim"])
-            case "mace":
+            case "ace":
                 self.embedding = MaceBasisEmbedding(rbf_type="exp")
                 for i in range(cfg["layer_num"]):
                     self.gata_list.append(MySEAOnlyGATA(init_X=i == 0, is_last=i == cfg["layer_num"] - 1))
@@ -54,7 +88,7 @@ class MyNet(GotenNet):
                 for gata in self.gata_list:
                     gata.sea = MaceSEA(gata.S * cfg["node_dim"], cfg["node_dim"])
                     gata.htr = MaceHTR() if gata.htr is not None else None
-            case "mace_no_htr":
+            case "ace_no_htr":
                 self.embedding = MaceBasisEmbedding(rbf_type="exp")
                 for i in range(cfg["layer_num"]):
                     self.gata_list.append(MySEAOnlyGATA(init_X=i == 0, is_last=True))
@@ -82,7 +116,8 @@ class MyNet(GotenNet):
 class MaceEdgeEmbedding(Embedding):
     def __init__(self, rbf_type="exp"):
         super().__init__(rbf_type)
-        self.w_mace = DegreeEdgeWeightLayer(cfg["edge_dim"])
+        self.w_ace = DegreeEdgeWeightLayer(cfg["edge_dim"])
+        self.w_emp = nn.Linear(cfg["rbf_num"], cfg["edge_dim"])
 
     def forward(self, z, p, edge_index):
         '''
@@ -103,8 +138,8 @@ class MaceEdgeEmbedding(Embedding):
         h = self.w_nrd_nru(torch.cat([self.a_na(z).squeeze(1), m_i], dim=1))
 
         # Edge Scalar Feature Initialization
-        mace_basis = mace_edge_basis(self.w_erp(rbf_0),r_ij)
-        t_ij = (h[n_i] + h[n_j]) * self.w_mace(mace_basis)
+        ace_basis = ace_edge_basis(self.w_emp(rbf_0),r_ij)
+        t_ij = (h[n_i] + h[n_j]) * self.w_erp(rbf_0) * self.w_ace(ace_basis)
 
         # High-degree Steerable Feature will be initialized in the first GATA module
         X = None
@@ -134,7 +169,7 @@ class MaceBasisEmbedding(Embedding):
         h = self.w_nrd_nru(torch.cat([self.a_na(z).squeeze(1),m_i],dim=1))
 
         # Edge Scalar Feature Initialization
-        t_ij = mace_edge_basis(self.w_erp(rbf_0),r_ij)
+        t_ij = ace_edge_basis(self.w_erp(rbf_0),r_ij)
 
         # High-degree Steerable Feature will be initialized in the first GATA module
         X = None
@@ -166,7 +201,7 @@ class MyEmbedding(Embedding):
         h = self.w_nrd_nru(torch.cat([self.a_na(z).squeeze(1),m_i],dim=1))
 
         # Edge Scalar Feature Initialization
-        t_ij = mace_edge_basis(self.w_edp(rbf_0),r_ij)
+        t_ij = ace_edge_basis(self.w_edp(rbf_0),r_ij)
         #t_ij = (h[n_i]+h[n_j]) * self.w_erp(rbf_0)
 
         # High-degree Steerable Feature will be initialized in the first GATA module
@@ -320,11 +355,80 @@ class MySEAOnlyGATA(GATA):
         for i in range(cfg["degree_max"]):
             l = i + 1
             if o_ij_t is not None:
-                dX_l = scatter(o_ij_d[:, i:i + 1, :] * r_ij[l].unsqueeze(-1) + o_ij_t[:, i:i + 1, :] * X[i][n_j], n_i,
-                               dim=0, dim_size=len(h), reduce="sum")
+                dX_l = scatter(o_ij_d[:, i:i + 1, :] * r_ij[l].unsqueeze(-1) + o_ij_t[:, i:i + 1, :] * X[i][n_j], n_i, dim=0, dim_size=len(h), reduce="sum")
                 X[i] = X[i] + dX_l
             else:
                 dX_l = scatter(o_ij_d[:, i:i + 1, :] * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(h), reduce="sum")
+                X.append(dX_l)
+
+        if self.htr is not None:
+            dt_ij = self.htr(h, X, t_ij, r_ij[1:], edge_index, batch_index)
+            t_ij = t_ij + dt_ij
+
+        return h, X, t_ij
+
+class MySEAOnlyMultibodyGATA(GATA):
+    def __init__(self,init_X=False,is_last=False,scalar_mult=False):
+        super().__init__(init_X,is_last)
+        self.w_rs = None
+        self.mlp_s = None
+
+        self.body_max = 4
+        self.w_hb = nn.ModuleList([nn.Linear(cfg["node_dim"], cfg["node_dim"]) for _ in range(2,self.body_max)]) if scalar_mult else []
+        c_n = sum(cfg["high_degree_sizes"][0])
+        self.w_Xb = nn.ModuleList([nn.Linear(c_n*cfg["node_dim"], c_n*cfg["node_dim"],bias=False) for _ in range(2, self.body_max)])
+        self.irreps = o3.Irreps("+".join(["{}x{}o".format(cfg["node_dim"], l+1) for l in range(cfg["degree_max"])]))
+        self.tp = [FullyConnectedTensorProduct(
+            self.irreps,
+            self.irreps,
+            self.irreps
+        ) for _ in self.w_Xb]
+
+    def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
+        n_j, n_i = edge_index
+        r_0 = r_ij[0]
+
+        sea_ij = self.sea(h, t_ij, r_ij, edge_index)
+
+        o_ij = sea_ij
+        o_ij = o_ij.view(edge_index.shape[1], -1, cfg["node_dim"])
+
+        o_ij_s = o_ij[:, 0, :]
+        dh_2b = scatter(o_ij_s, n_i, dim=0, dim_size=len(h), reduce="sum")
+        dh = dh_2b
+        for i,w_h_b in enumerate(self.w_hb):
+            b_i = i+3
+            dh = dh + w_h_b((dh_2b**(b_i-1))/math.sqrt(math.factorial(b_i-1)))
+        h = h + dh
+
+        o_ij_d = o_ij[:, 1:1 + cfg["degree_max"], :]
+        o_ij_t = None
+        if X is not None:
+            o_ij_t = o_ij[:, 1 + cfg["degree_max"]:1 + cfg["degree_max"] * 2, :]
+        else:
+            X = []
+
+        dX = []
+        for i in range(cfg["degree_max"]):
+            l = i + 1
+            if o_ij_t is not None:
+                dX_l = scatter(o_ij_d[:, i:i + 1, :] * r_ij[l].unsqueeze(-1) + o_ij_t[:, i:i + 1, :] * X[i][n_j], n_i, dim=0, dim_size=len(h), reduce="sum")
+            else:
+                dX_l = scatter(o_ij_d[:, i:i + 1, :] * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(h), reduce="sum")
+            dX.append(dX_l)
+
+        # 2-body => n-body
+        dX_ls = torch.cat(dX, dim=1)
+        dX_b = dX_2b = dX_ls.reshape(h.shape[0],-1) #torch.cat([dX_l.sum(dim=1) for dX_l in dX], dim=1)
+        for i,w_X_b in enumerate(self.w_Xb):
+            dX_b = self.tp[i](dX_b, dX_2b)
+            dX_ls = dX_ls + w_X_b(dX_b).reshape(h.shape[0], -1, cfg["node_dim"])
+        dX = list(torch.split(dX_ls, cfg["high_degree_sizes"][0], dim=1))
+
+        for i,dX_l in enumerate(dX):
+            if o_ij_t is not None:
+                X[i] = X[i] + dX_l
+            else:
                 X.append(dX_l)
 
         if self.htr is not None:
