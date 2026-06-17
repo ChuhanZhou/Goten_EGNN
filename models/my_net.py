@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from e3nn import o3
-from e3nn.o3 import FullyConnectedTensorProduct
+from e3nn.o3 import FullyConnectedTensorProduct,FullTensorProduct
 from torch_geometric.utils import scatter,softmax
 import math
 
@@ -377,12 +377,12 @@ class MySEAOnlyMultibodyGATA(GATA):
         self.w_hb = nn.ModuleList([nn.Linear(cfg["node_dim"], cfg["node_dim"]) for _ in range(2,self.body_max)]) if scalar_mult else []
         c_n = sum(cfg["high_degree_sizes"][0])
         self.w_Xb = nn.ModuleList([nn.Linear(c_n*cfg["node_dim"], c_n*cfg["node_dim"],bias=False) for _ in range(2, self.body_max)])
-        self.irreps = o3.Irreps("+".join(["{}x{}o".format(cfg["node_dim"], l+1) for l in range(cfg["degree_max"])]))
-        self.tp = [FullyConnectedTensorProduct(
+        self.irreps = o3.Irreps("+".join(["{}x{}{}".format(cfg["node_dim"], l+1, "e"if (l+1)%2 ==0 else "o")  for l in range(cfg["degree_max"])]))
+        self.tp = nn.ModuleList([FullyConnectedTensorProduct(
             self.irreps,
             self.irreps,
             self.irreps
-        ) for _ in self.w_Xb]
+        ) for _ in self.w_Xb])
 
     def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
         n_j, n_i = edge_index
