@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from e3nn import o3
-from e3nn.o3 import FullyConnectedTensorProduct,FullTensorProduct
 from torch_geometric.utils import scatter,softmax
 import math
 
@@ -374,7 +373,7 @@ class MySEAOnlyMultibodyGATA(GATA):
         self.mlp_s = None
 
         self.body_max = cfg["body_max"]
-        self.w_hb = nn.ModuleList([nn.Linear(cfg["node_dim"], cfg["node_dim"]) for _ in range(2,self.body_max)]) if scalar_mult else []
+        self.w_hb = nn.ModuleList([MLP(cfg["node_dim"], cfg["node_dim"]) for _ in range(2,self.body_max)]) if scalar_mult else []
 
         self.irreps_main = o3.Irreps("+".join(["{}x{}{}".format(cfg["node_dim"], l + 1, "e" if (l + 1) % 2 == 0 else "o") for l in range(cfg["degree_max"])]))
         self.irreps_mb = o3.Irreps("+".join(["{}x{}{}".format(cfg["mult_body_dim"], l + 1, "e" if (l + 1) % 2 == 0 else "o") for l in range(cfg["degree_max"])]))
@@ -384,7 +383,7 @@ class MySEAOnlyMultibodyGATA(GATA):
         self.w_bm = o3.Linear(self.irreps_mb, self.irreps_main)
 
         self.irreps = o3.Irreps("+".join(["{}x{}{}".format(cfg["mult_body_dim"], l+1, "e"if (l+1)%2 ==0 else "o")  for l in range(cfg["degree_max"])]))
-        self.tp = nn.ModuleList([FullyConnectedTensorProduct(
+        self.tp = nn.ModuleList([o3.FullyConnectedTensorProduct(
             self.irreps_mb,
             self.irreps_mb,
             self.irreps_mb,

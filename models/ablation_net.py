@@ -1,6 +1,6 @@
 from configs.config import config as cfg
 from models.decoder import MLP,get_decoder
-from models.goten_net import GotenNet,init_parameters,SelfAttentionLayer,HTR,Embedding,EQFF
+from models.goten_net import GotenNet,init_parameters,SelfAttentionLayer,HTR,Embedding,GATA,EQFF,cos_cutoff
 
 import torch
 import torch.nn as nn
@@ -14,9 +14,17 @@ class AblationNet(GotenNet):
         super().__init__(out_label,mean,std,rbf_type,need_guide)
 
         match ablation_type:
-            case "sea_sing":
+            case "sea_only":
+                self.gata_list = nn.ModuleList()
+                for i in range(cfg["layer_num"]):
+                    self.gata_list.append(SEAOnlyGATA(init_X=i == 0, is_last=i == cfg["layer_num"] - 1))
+            case "res_sea_only":
+                self.gata_list = nn.ModuleList()
+                for i in range(cfg["layer_num"]):
+                    self.gata_list.append(SEAOnlyGATA(init_X=i == 0, is_last=i == cfg["layer_num"] - 1))
+
                 for gata in self.gata_list:
-                    gata.sea = SingleHeadSEA(gata.S * cfg["node_dim"])
+                    gata.sea = ResSEA(gata.S * cfg["node_dim"])
             case "sea_comb":
                 for gata in self.gata_list:
                     gata.sea = CombineHeadSEA(gata.S * cfg["node_dim"], cfg["node_dim"])
@@ -47,31 +55,80 @@ class AblationNet(GotenNet):
         self.apply(init_parameters)
         self.set_decoder(self.out_label, mean, std, need_guide)
 
-class SingleHeadSEA(SelfAttentionLayer):
+class SEAOnlyGATA(GATA):
+    def __init__(self,init_X=False,is_last=False):
+        super().__init__(init_X,is_last)
+        self.w_rs = None
+        self.mlp_s = None
+
+    def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
+        n_j, n_i = edge_index
+        r_0 = r_ij[0]
+
+        sea_ij = self.sea(h, t_ij, r_ij, edge_index)
+
+        o_ij = sea_ij
+        o_ij = o_ij.view(edge_index.shape[1], -1, cfg["node_dim"])
+
+        o_ij_s = o_ij[:, 0, :]
+        dh = scatter(o_ij_s, n_i, dim=0, dim_size=len(h), reduce="sum")
+        h = h + dh
+
+        o_ij_d = o_ij[:, 1:1 + cfg["degree_max"], :]
+        o_ij_t = None
+        if X is not None:
+            o_ij_t = o_ij[:, 1 + cfg["degree_max"]:1 + cfg["degree_max"] * 2, :]
+        else:
+            X = []
+
+        for i in range(cfg["degree_max"]):
+            l = i + 1
+            if o_ij_t is not None:
+                dX_l = scatter(o_ij_d[:, i:i + 1, :] * r_ij[l].unsqueeze(-1) + o_ij_t[:, i:i + 1, :] * X[i][n_j], n_i,
+                               dim=0, dim_size=len(h), reduce="sum")
+                X[i] = X[i] + dX_l
+            else:
+                dX_l = scatter(o_ij_d[:, i:i + 1, :] * r_ij[l].unsqueeze(-1), n_i, dim=0, dim_size=len(h), reduce="sum")
+                X.append(dX_l)
+
+        if self.htr is not None:
+            dt_ij = self.htr(h, X, t_ij, r_ij[1:], edge_index, batch_index)
+            t_ij = t_ij + dt_ij
+
+        return h, X, t_ij
+
+class ResSEA(SelfAttentionLayer):
     def __init__(self,out_features):
         super().__init__(out_features)
+        self.w_rs = nn.Linear(cfg["edge_dim"], out_features)
 
-    def forward(self, h, t_ij, edge_index):
+    def forward(self, h, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
 
-        q_i = self.w_q(h)[n_i]
-        k_j = self.w_k(h)[n_j]
-        v_j = self.mlp_v(h)[n_j]
+        q_i = self.w_q(h).reshape(h.shape[0],self.head_num,-1)[n_i]
+        k_j = self.w_k(h).reshape(h.shape[0],self.head_num,-1)[n_j]
+        v_j = self.mlp_v(h).reshape(h.shape[0],self.head_num,-1)[n_j]
+        w_j = self.act_fn(self.w_re(t_ij)).reshape(t_ij.shape[0],self.head_num,-1)
 
-        a_ij = (q_i * k_j * self.act_fn(self.w_re(t_ij))).sum(dim=-1,keepdims=True)
-        a_i = softmax(a_ij, n_i, num_nodes=h.shape[0], dim=0)
+        a_ij = (q_i * (k_j * w_j)).sum(dim=-1,keepdims=True)
+        a_ij = softmax(a_ij, n_i, num_nodes=h.shape[0], dim=0)
 
         # not in the paper but in the author's code
-        # norm = 1.0 / math.sqrt(cfg["node_dim"])
-        n_i_edges = scatter(torch.ones([len(n_i), 1], device=n_i.device), n_i, dim=0, reduce="sum")
+        #norm = 1.0 / math.sqrt(cfg["node_dim"])
+        n_i_edges = scatter(torch.ones([len(n_i),1,1],device=n_i.device),n_i,dim=0,reduce="sum")
         norm = torch.sqrt(n_i_edges) / math.sqrt(cfg["node_dim"])
         norm = norm[n_i]
-        a_i = a_i * norm
+        a_ij = a_ij * norm
 
-        a_i = self.dropout(a_i)
-        sea_ij = a_i * v_j  # [E,D*5]
+        a_ij = self.dropout(a_ij)
+        sea_ij = a_ij * v_j #[E,H,D*5/H]
+        sea_ij = sea_ij.flatten(1) #[E,D*5]
 
-        return sea_ij
+        # not in the paper
+        if self.combine_heads is not None:
+            sea_ij = self.combine_heads(sea_ij)
+            #sea_ij = self.dropout(sea_ij)
+        return sea_ij+v_j.flatten(1)*self.w_rs(t_ij)*cos_cutoff(r_ij[0])
 
 class CombineHeadSEA(SelfAttentionLayer):
     def __init__(self, out_features, attn_dim=None):
@@ -90,7 +147,7 @@ class NoSEAButWeight(SelfAttentionLayer):
 
         self.mlp_w = MLP(in_features=cfg["node_dim"]//2*3, out_features=1)
 
-    def forward(self, h, t_ij, edge_index):
+    def forward(self, h, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
 
         q_i = self.w_q(h)[n_i]
@@ -115,7 +172,7 @@ class NoSEAButNorm(SelfAttentionLayer):
     def __init__(self,out_features):
         super().__init__(out_features)
 
-    def forward(self, h, t_ij, edge_index):
+    def forward(self, h, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
 
         v_j = self.mlp_v(h)[n_j]
@@ -163,7 +220,7 @@ class AttHTR(HTR):
         ek_j = ek_j.reshape(ek_j.shape[0],ek_j.shape[1],self.head_num,-1) #[E,8,8,32]
         ev_ij = ev_ij.reshape(ev_ij.shape[0],self.head_num,-1) #[E,8,32]
 
-        a_ij = (eq_i * ek_j).sum(dim=1)  # [E,8,32]
+        a_ij = (eq_i * ek_j).sum(dim=1).sum(dim=-1,keepdim=True)  # [E,8,32]
         a_ij = F.softmax(a_ij, dim=1)
         a_ij = self.dropout(a_ij)
 

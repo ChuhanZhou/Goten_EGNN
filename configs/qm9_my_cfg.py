@@ -5,7 +5,7 @@ sub_config = {
     'layer_num':6,
 
     'body_max': 4,
-    'mult_body_dim': 32,
+    'mult_body_dim': 16,
     'node_dim': 256, # d_ne
     'edge_dim': 256, # d_ed
     'edge_ref_dim': 256, # d_xpd
