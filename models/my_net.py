@@ -102,13 +102,15 @@ class MyNet(GotenNet):
         #    gata.htr = MyHTR() if gata.htr is not None else None
 
         self.apply(init_parameters)
-        self.set_decoder(self.out_label, mean, std)
+        self.set_decoder(self.out_label, mean, std, False)
 
     def set_decoder(self, decoder_type, mean=0, std=1, need_guide=False):
         if decoder_type in ["alpha","zpve","u0","u","h","g","cv"]:
             decoder_type = "scalar_mix"
         elif decoder_type in ["homo","lumo"]:
             decoder_type = "scalar_int"
+        elif decoder_type in ["mu"]:
+            need_guide = True
         self.decoder = get_decoder(decoder_type, mean, std, need_guide)
         self.decoder_type = decoder_type
 
