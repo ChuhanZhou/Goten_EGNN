@@ -2,7 +2,7 @@ import math
 import sys
 
 from configs.config import config as cfg,update_model_cfg
-from tool.data_loader import split_data_by_ids
+from tool.data_loader import split_data_by_ids, ensure_dir
 from models.goten_net import GotenNet
 from models.ablation_net import AblationNet
 from models.my_net import MyNet
@@ -191,6 +191,8 @@ if __name__ == '__main__':
                     not_best_epoch = 0
                 else:
                     not_best_epoch += 1
+
+    ensure_dir(cfg['ckpt_path'])
 
     sub_label = cfg["predict_label"] if  cfg["mol_type"] is None else cfg["mol_type"]
     ckpt_path = "{}/{}_t{}_s{}_{}.pth".format(cfg['ckpt_path'], cfg['title'], cfg["train_size"], seed, sub_label)
