@@ -218,8 +218,8 @@ class HTR(nn.Module):
     # Hierarchical Tensor Refinement
     def __init__(self):
         super().__init__()
-        self.w_vq = nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=False)
-        self.w_vk = nn.ModuleList([nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=False) for _ in range(cfg["degree_max"])])
+        self.w_vq = nn.Linear(cfg["node_dim"],cfg["edge_ref_dim"],bias=False)
+        self.w_vk = nn.ModuleList([nn.Linear(cfg["node_dim"],cfg["edge_ref_dim"],bias=False) for _ in range(cfg["degree_max"])])
 
         self.mlp_w = MLP(in_features=cfg["edge_ref_dim"], out_features=cfg["edge_dim"])
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=cfg["edge_dim"])

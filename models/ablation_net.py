@@ -195,8 +195,8 @@ class AttHTR(HTR):
 
         edge_ref_dim = cfg["edge_dim"]*2
 
-        self.w_vq = nn.Linear(cfg["edge_dim"], edge_ref_dim, bias=False)
-        self.w_vk = nn.ModuleList([nn.Linear(cfg["edge_dim"], edge_ref_dim, bias=False) for _ in range(cfg["degree_max"])])
+        self.w_vq = nn.Linear(cfg["node_dim"], edge_ref_dim, bias=False)
+        self.w_vk = nn.ModuleList([nn.Linear(cfg["node_dim"], edge_ref_dim, bias=False) for _ in range(cfg["degree_max"])])
 
         self.mlp_w = None
         self.mlp_t = MLP(in_features=cfg["edge_dim"],out_features=edge_ref_dim)
@@ -233,8 +233,8 @@ class AttHTR(HTR):
 class ScalarHTR(HTR):
     def __init__(self):
         super().__init__()
-        self.w_vq = nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=True)
-        self.w_vk = nn.Linear(cfg["edge_dim"],cfg["edge_ref_dim"],bias=True)
+        self.w_vq = nn.Linear(cfg["node_dim"],cfg["edge_ref_dim"],bias=True)
+        self.w_vk = nn.Linear(cfg["node_dim"],cfg["edge_ref_dim"],bias=True)
 
     def forward(self, h, X, t_ij, r_ij, edge_index, batch_index):
         n_j, n_i = edge_index
@@ -277,7 +277,7 @@ class NoEdgeSEA(SelfAttentionLayer):
         super().__init__(out_features)
         self.w_re = None
 
-    def forward(self, h, t_ij, edge_index):
+    def forward(self, h, t_ij, r_ij, edge_index):
         n_j, n_i = edge_index
 
         q_i = self.w_q(h).reshape(h.shape[0],self.head_num,-1)[n_i]

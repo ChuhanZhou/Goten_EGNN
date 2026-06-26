@@ -380,9 +380,8 @@ class MySEAOnlyMultibodyGATA(GATA):
         self.irreps_main = o3.Irreps("+".join(["{}x{}{}".format(cfg["node_dim"], l + 1, "e" if (l + 1) % 2 == 0 else "o") for l in range(cfg["degree_max"])]))
         self.irreps_mb = o3.Irreps("+".join(["{}x{}{}".format(cfg["mult_body_dim"], l + 1, "e" if (l + 1) % 2 == 0 else "o") for l in range(cfg["degree_max"])]))
 
-        #c_n = sum(cfg["high_degree_sizes"][0])
         self.w_mb = o3.Linear(self.irreps_main, self.irreps_mb)
-        self.w_bm = o3.Linear(self.irreps_mb, self.irreps_main)
+        self.w_bm = nn.ModuleList([o3.Linear(self.irreps_mb, self.irreps_main)for _ in range(2, self.body_max)])
 
         self.irreps = o3.Irreps("+".join(["{}x{}{}".format(cfg["mult_body_dim"], l+1, "e"if (l+1)%2 ==0 else "o")  for l in range(cfg["degree_max"])]))
         self.tp = nn.ModuleList([o3.FullyConnectedTensorProduct(
@@ -430,7 +429,7 @@ class MySEAOnlyMultibodyGATA(GATA):
         dX_b = dX_2b = self.w_mb(dX_ls.reshape(h.shape[0],-1))
         for i,tp_b in enumerate(self.tp):
             dX_b = tp_b(dX_b, dX_2b)
-            dX_ls = dX_ls + self.w_bm(dX_b).reshape(h.shape[0], -1, cfg["node_dim"])
+            dX_ls = dX_ls + self.w_bm[i](dX_b).reshape(h.shape[0], -1, cfg["node_dim"])
         dX = list(torch.split(dX_ls, cfg["high_degree_sizes"][0], dim=1))
 
         for i,dX_l in enumerate(dX):

@@ -2,6 +2,8 @@ import sys
 
 from configs.config import config as cfg,update_model_cfg
 from models.goten_net import GotenNet
+from models.ablation_net import AblationNet
+from models.my_net import MyNet
 from tool.utils import collate_fn,load_atom_mass,get_mean_std
 from tool.data_loader import split_data_by_ids
 
@@ -14,6 +16,7 @@ import numpy as np
 import random
 import re
 import os
+import argparse
 
 def test(model,dataset,title="testing",use_tqdm=True):
     device = cfg['device']
@@ -105,8 +108,10 @@ MODEL_MOL_LIST = ["aspirin","azobenzene","benzene","ethanol","malonaldehyde","na
 
 
 if __name__ == '__main__':
-    title_label = "qm9_B_t110000_s0"
-    #title_label = "rmd17_t950_s0"
+    parser = argparse.ArgumentParser(description="Training model")
+    parser.add_argument('--title', help="model title", type=str, default=None)
+    args = parser.parse_args()
+
     test_results = {}
     test_stds = []
     test_logs = []
@@ -115,7 +120,7 @@ if __name__ == '__main__':
     print_4f = False
 
     for target in MODEL_TARGET_LIST+MODEL_MOL_LIST:
-        ckpt_path = "./ckpt/{}_{}_best.pth".format(title_label,target)
+        ckpt_path = "./ckpt/{}_{}_best.pth".format(args.title,target)
         if not os.path.isfile(ckpt_path):
             continue
 
@@ -131,10 +136,18 @@ if __name__ == '__main__':
 
         cfg['predict_label'] = ckpt["label"]
 
-        #cfg['device'] = "cpu"
-        #cfg['batch_size'] = 16
         model = GotenNet()
-        model.set_decoder(ckpt["decoder"])
+
+        if ckpt["net_type"] is not None:
+            model = MyNet(net_type=ckpt["net_type"])
+        elif ckpt["ablation"] is None:
+            model = GotenNet(need_guide=ckpt["guide"])
+        else:
+            model = AblationNet(need_guide=ckpt["guide"],ablation_type=ckpt["ablation"])
+
+        if ckpt["decoder"] is not None:
+            model.set_decoder(ckpt["decoder"], ckpt["guide"])
+
         model.load_state_dict(ckpt["model_ckpt"], strict=True)
 
         #val_loss, val_mae, _ = test(model, val_set, title="val_set")
